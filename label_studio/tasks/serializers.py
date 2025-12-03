@@ -266,7 +266,12 @@ class BaseTaskSerializer(FlexFieldsModelSerializer):
             data = instance.data
             replace_task_data_undefined_with_config_field(data, project)
 
-        return super().to_representation(instance)
+        ret = super().to_representation(instance)
+        # Ensure allow_skip is always present in the response, even if None
+        # This is important for frontend logic that checks allow_skip !== false
+        if 'allow_skip' not in ret:
+            ret['allow_skip'] = instance.allow_skip
+        return ret
 
     class Meta:
         model = Task
@@ -678,6 +683,7 @@ class BaseTaskSerializerBulk(serializers.ListSerializer):
                 total_predictions=len(task_predictions[i]),
                 total_annotations=total_annotations,
                 cancelled_annotations=cancelled_annotations,
+                allow_skip=task.get('allow_skip', True),  # Default to True for backward compatibility
             )
             db_tasks.append(t)
 

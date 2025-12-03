@@ -674,6 +674,17 @@ export default types
 
     function skipTask(extraData) {
       if (self.isSubmitting) return;
+      // Manager roles that can force-skip unskippable tasks (OW=Owner, AD=Admin, MA=Manager)
+      const MANAGER_ROLES = ["OW", "AD", "MA"];
+      const task = self.task;
+      const taskAllowSkip = task?.allow_skip !== false;
+      const userRole = window.APP_SETTINGS?.user?.role;
+      const hasForceSkipPermission = MANAGER_ROLES.includes(userRole);
+      const canSkip = taskAllowSkip || hasForceSkipPermission;
+      if (!canSkip) {
+        console.warn("Task cannot be skipped: allow_skip is false and user lacks manager role");
+        return;
+      }
       handleSubmittingFlag(() => {
         getEnv(self).events.invoke("skipTask", self, extraData);
         self.incrementQueuePosition();
