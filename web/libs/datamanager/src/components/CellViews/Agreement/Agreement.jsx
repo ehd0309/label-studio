@@ -1,7 +1,8 @@
 import { useSDK } from "../../../providers/SDKProvider";
 import { isDefined } from "../../../utils/utils";
 import { useState } from "react";
-import { Popover } from "@humansignal/ui";
+import { Button, Popover } from "@humansignal/ui";
+import { IconSettings } from "@humansignal/icons";
 
 const LOW_AGREEMENT_SCORE = 33;
 const MEDIUM_AGREEMENT_SCORE = 66;
@@ -39,7 +40,7 @@ export const Agreement = (cell) => {
     "";
 
   const colPath = String(colId).split(":").pop() || "";
-  const isDimensionAgreementColumn = colPath.startsWith("dimension_agreement__");
+  const isDimensionAgreementColumn = colPath.startsWith("dimension_agreement_");
   const isAgreementPopoverEnabled = basePopoverEnabled && !isDimensionAgreementColumn;
 
   const handleClick = isAgreementPopoverEnabled
@@ -62,3 +63,20 @@ export const Agreement = (cell) => {
 };
 
 Agreement.userSelectable = false;
+
+Agreement.HeaderCell = ({ agreementFilters, onSave, children }) => {
+  const sdk = useSDK();
+  return (
+    <Button
+      look="outlined"
+      variant="neutral"
+      size="small"
+      tooltip="Adjust calculation and display of all agreement columns"
+      onClick={() => sdk.invoke("AgreementHeaderClick", { agreementFilters, onSave })}
+      className="flex items-center justify-between gap-tight w-full cursor-pointer overflow-hidden"
+    >
+      {children}
+      <IconSettings width={16} height={16} className="ml-auto" />
+    </Button>
+  );
+};
