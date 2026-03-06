@@ -258,7 +258,7 @@ def add_expression(queryset, size, value, value_name):
     # sampling with choices and weights
     elif command == 'choices':
         assert 0 < len(args) < 3, (
-            'choices(values:list, weights:list) ' 'should have 1 or 2 args: values & weights (default=None)'
+            'choices(values:list, weights:list) should have 1 or 2 args: values & weights (default=None)'
         )
         weights = json.loads(args[1]) if len(args) == 2 else None
         values = random.choices(population=json.loads(args[0]), weights=weights, k=size)

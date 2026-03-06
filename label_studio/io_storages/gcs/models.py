@@ -114,7 +114,7 @@ class GCSStorageMixin(models.Model):
             if start > 0 or (end is not None and end != blob.size):
                 end_str = str(end) if end is not None else ''
                 headers['Range'] = f'bytes={start}-{end_str}'
-                logger.debug(f"Using range header: {headers['Range']}")
+                logger.debug(f'Using range header: {headers["Range"]}')
 
             # Make a single streaming request
             session = AuthorizedSession(client._credentials)

@@ -88,9 +88,11 @@ urlpatterns = [
     # Again for legacy reasons, docs/api?format=openapi redirects to docs/api/schema/json/
     path(
         'docs/api/',
-        lambda request: HttpResponseRedirect('/docs/api/schema/json/')
-        if request.GET.get('format') == 'openapi'
-        else HttpResponseRedirect('/docs/api/schema/redoc/'),
+        lambda request: (
+            HttpResponseRedirect('/docs/api/schema/json/')
+            if request.GET.get('format') == 'openapi'
+            else HttpResponseRedirect('/docs/api/schema/redoc/')
+        ),
         name='docs-api',
     ),
     path(

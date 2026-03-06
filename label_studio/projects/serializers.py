@@ -64,8 +64,7 @@ class ProjectSerializer(FlexFieldsModelSerializer):
     total_annotations_number = serializers.IntegerField(
         default=None,
         read_only=True,
-        help_text='Total annotations number in project including '
-        'skipped_annotations_number and ground_truth_number.',
+        help_text='Total annotations number in project including skipped_annotations_number and ground_truth_number.',
     )
     total_predictions_number = serializers.IntegerField(
         default=None,

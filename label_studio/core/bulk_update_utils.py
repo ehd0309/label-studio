@@ -67,7 +67,7 @@ def validate_fields(meta, fields):
     non_model_fields = fields.difference(field_names)
 
     if non_model_fields:
-        raise TypeError('These fields are not present in ' 'current meta: {}'.format(', '.join(non_model_fields)))
+        raise TypeError('These fields are not present in current meta: {}'.format(', '.join(non_model_fields)))
 
 
 def get_fields(update_fields, exclude_fields, meta, obj=None):

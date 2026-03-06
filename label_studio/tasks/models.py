@@ -620,7 +620,7 @@ class Annotation(AnnotationMixin, FsmHistoryStateModel):
         'result',
         null=True,
         default=None,
-        help_text='The main value of annotator work - ' 'labeling result in JSON format',
+        help_text='The main value of annotator work - labeling result in JSON format',
     )
 
     task = models.ForeignKey(
@@ -1167,8 +1167,7 @@ class Prediction(models.Model):
         except Exception as exc:
             # TODO: handle exceptions better
             logger.error(
-                f'Error creating prediction for task {task_id} with {data}: {exc}. '
-                f'Traceback: {traceback.format_exc()}'
+                f'Error creating prediction for task {task_id} with {data}: {exc}. Traceback: {traceback.format_exc()}'
             )
 
     class Meta:

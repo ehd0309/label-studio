@@ -421,7 +421,7 @@ def apply_filters(queryset, filters, project, request):
                     return queryset.none()
 
             # append operator
-            field_name = f"{clean_field_name}{operators.get(_filter.operator, '')}"
+            field_name = f'{clean_field_name}{operators.get(_filter.operator, "")}'
 
             # in
             if _filter.operator == 'in':

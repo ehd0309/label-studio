@@ -738,7 +738,7 @@ def timeit(func):
         start = time.time()
         result = func(*args, **kwargs)
         end = time.time()
-        logging.debug(f'{func.__name__} execution time: {end-start} seconds')
+        logging.debug(f'{func.__name__} execution time: {end - start} seconds')
         return result
 
     return wrapper

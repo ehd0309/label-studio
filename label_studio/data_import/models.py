@@ -429,7 +429,7 @@ def _old_vs_new_data_keys_inconsistency_message(new_data_keys, old_data_keys, cu
     elif new_data_keys_list == settings.DATA_UNDEFINED_NAME:
         return (
             common_prefix
-            + 'uploading a single file {0} ' 'clashes with data key(s) found from other files:\n"{1}"'.format(
+            + 'uploading a single file {0} clashes with data key(s) found from other files:\n"{1}"'.format(
                 current_file, old_data_keys_list
             )
         )

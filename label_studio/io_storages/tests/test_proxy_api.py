@@ -418,7 +418,7 @@ class TestResolveStorageUriAPIMixin(unittest.TestCase):
 
             result = self.mixin.override_range_header(self.request)
             # Should add MAX_RANGE_SIZE to start
-            assert result == f'bytes=100-{100 + 1024*1024}'
+            assert result == f'bytes=100-{100 + 1024 * 1024}'
 
         # Case: bytes=100-0 (treated like bytes=100-)
         self.request.headers = {'Range': 'bytes=100-0'}
@@ -432,7 +432,7 @@ class TestResolveStorageUriAPIMixin(unittest.TestCase):
 
             result = self.mixin.override_range_header(self.request)
             # Should add MAX_RANGE_SIZE to start
-            assert result == f'bytes=100-{100 + 1024*1024}'
+            assert result == f'bytes=100-{100 + 1024 * 1024}'
 
     def test_override_range_header_start_and_end(self):
         """Test override_range_header with start and end positions"""

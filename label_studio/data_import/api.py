@@ -540,7 +540,7 @@ class ImportPredictionsAPI(generics.CreateAPIView):
 
                 if task_id not in existing_task_ids:
                     raise ValidationError(
-                        f'{item} contains invalid "task" field: task ID {task_id} ' f'not found in project {project}'
+                        f'{item} contains invalid "task" field: task ID {task_id} not found in project {project}'
                     )
 
                 batch_predictions.append(
@@ -559,7 +559,7 @@ class ImportPredictionsAPI(generics.CreateAPIView):
             total_created += len(batch_created)
 
             logger.debug(
-                f'Processed batch {batch_start}-{batch_end-1}: created {len(batch_created)} predictions '
+                f'Processed batch {batch_start}-{batch_end - 1}: created {len(batch_created)} predictions '
                 f'(total so far: {total_created})'
             )
 

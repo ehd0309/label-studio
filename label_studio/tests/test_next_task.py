@@ -144,9 +144,9 @@ def test_next_task(business_client, any_client, project_config, tasks, status_co
         for response_key, expected_value_set in expected_response_value_set.items():
             if expected_value_set == 'uncompleted_task_ids':
                 expected_value_set = uncompleted_task_ids
-            assert (
-                rdata[response_key] in expected_value_set
-            ), f'Failed on response {rdata}: expecting value set "{expected_value_set}" for key "{response_key}"'
+            assert rdata[response_key] in expected_value_set, (
+                f'Failed on response {rdata}: expecting value set "{expected_value_set}" for key "{response_key}"'
+            )
 
 
 @pytest.mark.parametrize(
@@ -1237,9 +1237,9 @@ def test_with_bad_annotation_result(business_client):
     make_async_annotation_submit(anns[0])
     # TODO: measuring response time is not a good way to do that,
     #  but dunno how to emulate async requests or timeouts for Django test client
-    assert (
-        (time.time() - t) < 1
-    ), 'Time of annotation.submit() increases - that might be caused by redundant computations over the rest of the tasks - check that only a single task is affected by /api/tasks/<task_id>/annotations'
+    assert (time.time() - t) < 1, (
+        'Time of annotation.submit() increases - that might be caused by redundant computations over the rest of the tasks - check that only a single task is affected by /api/tasks/<task_id>/annotations'
+    )
 
     assert uncompleted_task.has_lock()  # Task has lock since it has annotation
 

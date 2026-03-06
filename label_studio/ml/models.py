@@ -46,7 +46,7 @@ class MLBackend(models.Model):
     is_interactive = models.BooleanField(
         _('is_interactive'),
         default=False,
-        help_text=('Used to interactively annotate tasks. ' 'If true, model returns one list with results'),
+        help_text=('Used to interactively annotate tasks. If true, model returns one list with results'),
     )
     url = models.TextField(
         _('url'),
@@ -324,8 +324,7 @@ class MLBackend(models.Model):
             for r in response:
                 if 'result' not in r:
                     logger.error(
-                        f"ML backend returns an incorrect prediction, it should be a dict with the 'result' field:"
-                        f' {r}'
+                        f"ML backend returns an incorrect prediction, it should be a dict with the 'result' field: {r}"
                     )
                     continue
                 predictions.append(
@@ -390,7 +389,7 @@ class MLBackend(models.Model):
         if not (isinstance(ml_api_result.response, dict) and 'results' in ml_api_result.response):
             logger.info(f'ML backend returns an incorrect response, it must be a dict: {ml_api_result.response}')
             result['errors'] = [
-                'Incorrect response from ML service: ' 'ML backend returns an incorrect response, it must be a dict.'
+                'Incorrect response from ML service: ML backend returns an incorrect response, it must be a dict.'
             ]
             return result
 
@@ -403,7 +402,7 @@ class MLBackend(models.Model):
         if not isinstance(ml_results, list) or len(ml_results) < 1:
             logger.warning(f'ML backend has to return list with 1 annotation but it returned: {type(ml_results)}')
             result['errors'] = [
-                'Incorrect response from ML service: ' 'ML backend has to return list with more than 1 result.'
+                'Incorrect response from ML service: ML backend has to return list with more than 1 result.'
             ]
             return result
         result['data'] = ml_results[0]

@@ -424,7 +424,7 @@ class DjangoModelIntegrationTests(TestCase):
 
                 if errors:
                     raise TransitionValidationError(
-                        f"Assignment validation failed: {'; '.join(errors)}",
+                        f'Assignment validation failed: {"; ".join(errors)}',
                         {
                             'validation_errors': errors,
                             'assignee_id': self.assignee_id,
