@@ -1797,6 +1797,33 @@
       "version": 3,
       "deleted": false
     },
+    "fflag_feat_all_optic_interfaces_short": {
+      "key": "fflag_feat_all_optic_interfaces_short",
+      "on": false,
+      "prerequisites": [],
+      "targets": [],
+      "contextTargets": [],
+      "rules": [],
+      "fallthrough": {
+        "variation": 0
+      },
+      "offVariation": 1,
+      "variations": [
+        true,
+        false
+      ],
+      "clientSideAvailability": {
+        "usingMobileKey": false,
+        "usingEnvironmentId": false
+      },
+      "clientSide": false,
+      "salt": "aac12b5313fb48628ad3f9af43837671",
+      "trackEvents": false,
+      "trackEventsFallthrough": false,
+      "debugEventsUntilDate": null,
+      "version": 2,
+      "deleted": false
+    },
     "fflag_feat_all_utc_179_custom_function_logs": {
       "key": "fflag_feat_all_utc_179_custom_function_logs",
       "on": true,
@@ -5031,6 +5058,33 @@
       },
       "clientSide": false,
       "salt": "d997d229777d4b7fa74796d017284f7d",
+      "trackEvents": false,
+      "trackEventsFallthrough": false,
+      "debugEventsUntilDate": null,
+      "version": 3,
+      "deleted": false
+    },
+    "fflag_fix_fit_1511_resolve_multiple_cloud_uris": {
+      "key": "fflag_fix_fit_1511_resolve_multiple_cloud_uris",
+      "on": true,
+      "prerequisites": [],
+      "targets": [],
+      "contextTargets": [],
+      "rules": [],
+      "fallthrough": {
+        "variation": 0
+      },
+      "offVariation": 1,
+      "variations": [
+        true,
+        false
+      ],
+      "clientSideAvailability": {
+        "usingMobileKey": false,
+        "usingEnvironmentId": false
+      },
+      "clientSide": false,
+      "salt": "8a4170cf671f4a05b6d6b5dbcc3be2c1",
       "trackEvents": false,
       "trackEventsFallthrough": false,
       "debugEventsUntilDate": null,
