@@ -2229,6 +2229,33 @@
       "version": 2,
       "deleted": false
     },
+    "fflag_feat_bros_763_gcs_sa_impersonation": {
+      "key": "fflag_feat_bros_763_gcs_sa_impersonation",
+      "on": true,
+      "prerequisites": [],
+      "targets": [],
+      "contextTargets": [],
+      "rules": [],
+      "fallthrough": {
+        "variation": 0
+      },
+      "offVariation": 1,
+      "variations": [
+        true,
+        false
+      ],
+      "clientSideAvailability": {
+        "usingMobileKey": false,
+        "usingEnvironmentId": false
+      },
+      "clientSide": false,
+      "salt": "5642512d9aff42d993200baa62a7842e",
+      "trackEvents": false,
+      "trackEventsFallthrough": false,
+      "debugEventsUntilDate": null,
+      "version": 3,
+      "deleted": false
+    },
     "fflag_feat_bros_836_improving_sso_saml_scim": {
       "key": "fflag_feat_bros_836_improving_sso_saml_scim",
       "on": true,
