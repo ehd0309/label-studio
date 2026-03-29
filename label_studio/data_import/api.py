@@ -886,33 +886,60 @@ BINARY_EXTENSIONS = {
 }
 
 
+def _get_s3_client():
+    """S3 client for server-side operations (uses internal MinIO endpoint)."""
+    return boto3.client(
+        's3',
+        endpoint_url=settings.AWS_S3_ENDPOINT_URL,
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+    )
+
+
+def _get_s3_presign_client():
+    """S3 client for generating presigned URLs with V4 signatures.
+    Uses the internal MinIO endpoint. nginx proxy must forward Host: minio:9000 to match."""
+    from botocore.config import Config
+
+    return boto3.client(
+        's3',
+        endpoint_url=settings.AWS_S3_ENDPOINT_URL,
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        config=Config(signature_version='s3v4'),
+    )
+
+
+def _proxy_url(url):
+    """Replace internal MinIO URL with nginx proxy path so browser can reach it."""
+    prefix = get_env('MINIO_PROXY_PREFIX', '')
+    if prefix:
+        return url.replace(settings.AWS_S3_ENDPOINT_URL, prefix)
+    return url
+
+
+def _validate_binary_upload(filename):
+    """Validate filename and return object_key prefix components."""
+    if not filename:
+        raise ValidationError('"filename" is required')
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in BINARY_EXTENSIONS:
+        raise ValidationError(f'Extension {ext} is not supported for direct upload. Use standard import.')
+    return ext
+
+
 class PresignedUploadAPI(APIView):
-    """Generate a presigned URL for direct upload to MinIO (binary files only)."""
+    """Generate a presigned URL for direct upload to MinIO (small binary files)."""
 
     permission_required = all_permissions.projects_change
 
     def post(self, request, pk):
         project = generics.get_object_or_404(Project.objects.for_user(request.user), pk=pk)
         filename = request.data.get('filename')
-        if not filename:
-            raise ValidationError('"filename" is required')
+        _validate_binary_upload(filename)
 
-        ext = os.path.splitext(filename)[1].lower()
-        if ext not in BINARY_EXTENSIONS:
-            return Response(
-                {'detail': f'Extension {ext} is not supported for direct upload. Use standard import.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Generate the same path pattern as upload_name_generator
         object_key = f"{settings.UPLOAD_DIR}/{project.id}/{uuid.uuid4().hex[:8]}-{filename}"
-
-        s3 = boto3.client(
-            's3',
-            endpoint_url=settings.AWS_S3_ENDPOINT_URL,
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        )
+        s3 = _get_s3_presign_client()
         presigned_url = s3.generate_presigned_url(
             'put_object',
             Params={
@@ -923,15 +950,92 @@ class PresignedUploadAPI(APIView):
             ExpiresIn=3600,
         )
 
-        # Replace internal MinIO URL with nginx proxy path so browser can reach it
-        minio_proxy_prefix = get_env('MINIO_PROXY_PREFIX', '')
-        if minio_proxy_prefix:
-            presigned_url = presigned_url.replace(settings.AWS_S3_ENDPOINT_URL, minio_proxy_prefix)
-
         return Response({
-            'presigned_url': presigned_url,
+            'presigned_url': _proxy_url(presigned_url),
             'object_key': object_key,
         })
+
+
+class MultipartInitAPI(APIView):
+    """Initiate a multipart upload for large binary files."""
+
+    permission_required = all_permissions.projects_change
+
+    def post(self, request, pk):
+        project = generics.get_object_or_404(Project.objects.for_user(request.user), pk=pk)
+        filename = request.data.get('filename')
+        _validate_binary_upload(filename)
+
+        object_key = f"{settings.UPLOAD_DIR}/{project.id}/{uuid.uuid4().hex[:8]}-{filename}"
+        content_type = request.data.get('content_type', 'application/octet-stream')
+
+        s3 = _get_s3_client()
+        resp = s3.create_multipart_upload(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+            Key=object_key,
+            ContentType=content_type,
+        )
+
+        return Response({
+            'upload_id': resp['UploadId'],
+            'object_key': object_key,
+        })
+
+
+class MultipartPresignPartAPI(APIView):
+    """Generate a presigned URL for uploading one part of a multipart upload."""
+
+    permission_required = all_permissions.projects_change
+
+    def post(self, request, pk):
+        generics.get_object_or_404(Project.objects.for_user(request.user), pk=pk)
+        object_key = request.data.get('object_key')
+        upload_id = request.data.get('upload_id')
+        part_number = request.data.get('part_number')
+
+        if not all([object_key, upload_id, part_number]):
+            raise ValidationError('"object_key", "upload_id", and "part_number" are required')
+
+        s3 = _get_s3_presign_client()
+        presigned_url = s3.generate_presigned_url(
+            'upload_part',
+            Params={
+                'Bucket': settings.AWS_STORAGE_BUCKET_NAME,
+                'Key': object_key,
+                'UploadId': upload_id,
+                'PartNumber': int(part_number),
+            },
+            ExpiresIn=3600,
+        )
+
+        return Response({
+            'presigned_url': _proxy_url(presigned_url),
+        })
+
+
+class MultipartCompleteAPI(APIView):
+    """Complete a multipart upload after all parts have been uploaded."""
+
+    permission_required = all_permissions.projects_change
+
+    def post(self, request, pk):
+        generics.get_object_or_404(Project.objects.for_user(request.user), pk=pk)
+        object_key = request.data.get('object_key')
+        upload_id = request.data.get('upload_id')
+        parts = request.data.get('parts')  # [{"PartNumber": 1, "ETag": "..."}, ...]
+
+        if not all([object_key, upload_id, parts]):
+            raise ValidationError('"object_key", "upload_id", and "parts" are required')
+
+        s3 = _get_s3_client()
+        s3.complete_multipart_upload(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+            Key=object_key,
+            UploadId=upload_id,
+            MultipartUpload={'Parts': parts},
+        )
+
+        return Response({'status': 'completed'})
 
 
 class RegisterUploadAPI(APIView):

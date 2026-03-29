@@ -27,6 +27,9 @@ export const API_CONFIG = {
     projectFilesDelete: "DELETE:/projects/:pk/files-browse",
     presignUpload: "POST:/projects/:pk/presign-upload",
     registerUpload: "POST:/projects/:pk/register-upload",
+    multipartInit: "POST:/projects/:pk/multipart/init",
+    multipartPresignPart: "POST:/projects/:pk/multipart/presign-part",
+    multipartComplete: "POST:/projects/:pk/multipart/complete",
 
     // Presigning
     presignUrlForTask: "/../tasks/:taskID/presign",

@@ -18,6 +18,9 @@ _api_projects_urlpatterns = [
     path('<int:pk>/files-browse', api.ProjectFilesBrowseAPI.as_view(), name='project-files-browse'),
     path('<int:pk>/presign-upload', api.PresignedUploadAPI.as_view(), name='project-presign-upload'),
     path('<int:pk>/register-upload', api.RegisterUploadAPI.as_view(), name='project-register-upload'),
+    path('<int:pk>/multipart/init', api.MultipartInitAPI.as_view(), name='project-multipart-init'),
+    path('<int:pk>/multipart/presign-part', api.MultipartPresignPartAPI.as_view(), name='project-multipart-presign-part'),
+    path('<int:pk>/multipart/complete', api.MultipartCompleteAPI.as_view(), name='project-multipart-complete'),
 ]
 
 urlpatterns = [
