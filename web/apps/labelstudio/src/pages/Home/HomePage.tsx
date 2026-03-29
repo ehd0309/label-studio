@@ -9,6 +9,7 @@ import { HeidiTips } from "../../components/HeidiTips/HeidiTips";
 import { useAPI } from "../../providers/ApiProvider";
 import { CreateProject } from "../CreateProject/CreateProject";
 import { InviteLink } from "../Organization/PeoplePage/InviteLink";
+import { useConfig } from "../../providers/ConfigProvider";
 import type { Page } from "../types/Page";
 import {
   creationDialogOpen,
@@ -61,6 +62,8 @@ type Action = (typeof actions)[number]["type"];
 export const HomePage: Page = () => {
   const api = useAPI();
   const location = useLocation();
+  const config = useConfig();
+  const isSuperuser = config?.user?.isSuperuser === true;
   const [modalIsOpen, setModalIsOpen] = useAtom(creationDialogOpen);
   const [invitationIsOpen, setInvitationIsOpen] = useAtom(invitationOpen);
   const setLocationKey = useSetAtom(locationKeyAtom);
@@ -143,7 +146,7 @@ export const HomePage: Page = () => {
             </Typography>
           </div>
           <div className="flex justify-start gap-4">
-            {actions.map((action) => {
+            {actions.filter((action) => action.type !== "inviteMembers" || isSuperuser).map((action) => {
               return (
                 <Button
                   key={action.title}

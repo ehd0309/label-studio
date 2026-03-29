@@ -165,6 +165,7 @@
       lastName: "{{user.last_name}}",
       initials: "{{user.get_initials}}",
 	email: "{{user.email}}",
+	isSuperuser: {{user.is_superuser|yesno:"true,false"}},
 	customHotkeys: __customHotkeys,
 
       allow_newsletters: {% if user.allow_newsletters is None %}null{% else %}{{user.allow_newsletters|yesno:"true,false"}}{% endif %},

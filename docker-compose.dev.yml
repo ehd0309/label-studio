@@ -1,0 +1,29 @@
+services:
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./deploy/dev/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: label-studio-dev:latest
+    restart: unless-stopped
+    ports:
+      - "8085:8080"
+    environment:
+      - LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED=true
+      - LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/data
+      - CSRF_TRUSTED_ORIGINS=http://localhost:8090,http://192.168.50.3:8090,https://*.trycloudflare.com
+      - DISABLE_SIGNUP_WITHOUT_LINK=true
+      # Initial admin user (created on first run when no DB exists)
+      - USERNAME=${LS_USERNAME:-ehd0309@naver.com}
+      - PASSWORD=${LS_PASSWORD:-1Q2w3e4r!!}
+    volumes:
+      - ls-dev-data:/label-studio/data
+
+volumes:
+  ls-dev-data:

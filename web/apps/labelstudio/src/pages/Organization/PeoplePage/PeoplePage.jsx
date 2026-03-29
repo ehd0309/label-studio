@@ -6,6 +6,7 @@ import { modal } from "../../../components/Modal/Modal";
 import { Space } from "../../../components/Space/Space";
 import { cn } from "../../../utils/bem";
 import { FF_AUTH_TOKENS, FF_LSDV_E_297, isFF } from "../../../utils/feature-flags";
+import { useConfig } from "../../../providers/ConfigProvider";
 import "./PeopleInvitation.prefix.css";
 import { PeopleList } from "./PeopleList";
 import "./PeoplePage.prefix.css";
@@ -18,6 +19,8 @@ import { SelectedUser } from "./SelectedUser";
 export const PeoplePage = () => {
   const apiSettingsModal = useRef();
   const toast = useToast();
+  const config = useConfig();
+  const isSuperuser = config?.user?.isSuperuser === true;
   const [selectedUser, setSelectedUser] = useState(null);
   const [invitationOpen, setInvitationOpen] = useState(false);
 
@@ -69,13 +72,15 @@ export const PeoplePage = () => {
                 API Tokens Settings
               </Button>
             )}
-            <Button
-              leading={<IconPlus className="!h-4" />}
-              onClick={() => setInvitationOpen(true)}
-              aria-label="Invite new member"
-            >
-              Add Members
-            </Button>
+            {isSuperuser && (
+              <Button
+                leading={<IconPlus className="!h-4" />}
+                onClick={() => setInvitationOpen(true)}
+                aria-label="Invite new member"
+              >
+                Add Members
+              </Button>
+            )}
           </Space>
         </Space>
       </div>

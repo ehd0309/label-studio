@@ -83,3 +83,6 @@ def make_perm(name, pred, overwrite=False):
 
 for _, permission_name in all_permissions:
     make_perm(permission_name, rules.is_authenticated)
+
+# Override: only superusers can invite members
+make_perm(all_permissions.organizations_invite, rules.is_superuser, overwrite=True)
