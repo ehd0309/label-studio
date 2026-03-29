@@ -20,11 +20,11 @@ services:
     environment:
       - LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED=true
       - LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/data
-      - CSRF_TRUSTED_ORIGINS=http://localhost:8090,http://192.168.50.3:8090,https://*.trycloudflare.com
+      - CSRF_TRUSTED_ORIGINS=http://localhost:8090,http://192.168.50.3:8090,https://*.trycloudflare.com,https://ls.3pools.org
       - DISABLE_SIGNUP_WITHOUT_LINK=true
       # Initial admin user (created on first run when no DB exists)
-      - USERNAME=${LS_USERNAME:-ehd0309@naver.com}
-      - PASSWORD=${LS_PASSWORD:-1Q2w3e4r!!}
+      - USERNAME=${LS_USERNAME:-testuser@cryptolab.co.kr}
+      - PASSWORD=${LS_PASSWORD:-Cryptolab1!}
       # MinIO as default file storage
       - MINIO_STORAGE_ENDPOINT=http://minio:9000
       - MINIO_RELATIVE_URL_PREFIX=/data

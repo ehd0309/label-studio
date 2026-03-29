@@ -168,6 +168,13 @@ export const ImportPage = ({
       return {
         ...state,
         uploading: state.uploading.filter((f) => !action.sent.includes(f)),
+        progress: {},
+      };
+    }
+    if (action.progress) {
+      return {
+        ...state,
+        progress: { ...state.progress, [action.progress.name]: action.progress.percent },
       };
     }
     if (action.uploaded) {
@@ -188,6 +195,7 @@ export const ImportPage = ({
   const [files, dispatch] = useReducer(processFiles, {
     uploaded: [],
     uploading: [],
+    progress: {},
     ids: [],
   });
   const showList = Boolean(files.uploaded?.length || files.uploading?.length || sample);
@@ -287,6 +295,7 @@ export const ImportPage = ({
         onFinish,
         onUploadStart: (files) => dispatch({ sending: files }),
         onUploadFinish: (files) => dispatch({ sent: files }),
+        onProgress: (name, percent) => dispatch({ progress: { name, percent } }),
         dontCommitToProject,
       });
     },
@@ -565,6 +574,8 @@ export const ImportPage = ({
                           FILENAME_TRUNCATE_END,
                           "...",
                         );
+                        const pct = files.progress?.[file.name];
+                        const hasProgress = typeof pct === "number";
                         return (
                           <tr key={`${idx}-${file.name}`}>
                             <td className={importClass.elem("file-name").toClassName()}>
@@ -573,13 +584,38 @@ export const ImportPage = ({
                                   {truncatedFilename}
                                 </Typography>
                               </Tooltip>
+                              {hasProgress && (
+                                <div style={{
+                                  marginTop: 4,
+                                  height: 4,
+                                  borderRadius: 2,
+                                  background: "#e5e7eb",
+                                  overflow: "hidden",
+                                }}>
+                                  <div style={{
+                                    height: "100%",
+                                    width: `${pct}%`,
+                                    background: "#2563eb",
+                                    borderRadius: 2,
+                                    transition: "width 0.2s ease",
+                                  }} />
+                                </div>
+                              )}
                             </td>
                             <td>
-                              <span
-                                className={importClass.elem("file-status").mod({ uploading: true }).toClassName()}
-                              />
+                              {hasProgress ? (
+                                <Typography variant="body" size="small" style={{ color: "#2563eb", fontVariantNumeric: "tabular-nums" }}>
+                                  {pct}%
+                                </Typography>
+                              ) : (
+                                <span
+                                  className={importClass.elem("file-status").mod({ uploading: true }).toClassName()}
+                                />
+                              )}
                             </td>
-                            <td className={importClass.elem("file-size").toClassName()}>&nbsp;</td>
+                            <td className={importClass.elem("file-size").toClassName()}>
+                              {file.size ? formatFileSize(file.size) : "\u00a0"}
+                            </td>
                           </tr>
                         );
                       })}
