@@ -6,7 +6,7 @@ import { AnnotationSettings } from "./AnnotationSettings";
 import { LabelingSettings } from "./LabelingSettings";
 import { MachineLearningSettings } from "./MachineLearningSettings/MachineLearningSettings";
 import { PredictionsSettings } from "./PredictionsSettings/PredictionsSettings";
-import { StorageSettings } from "./StorageSettings/StorageSettings";
+import { StorageBrowser } from "./StorageBrowser";
 import "./settings.prefix.css";
 
 export const MenuLayout = ({ children, ...routeProps }) => {
@@ -18,7 +18,7 @@ export const MenuLayout = ({ children, ...routeProps }) => {
         AnnotationSettings,
         MachineLearningSettings,
         PredictionsSettings,
-        StorageSettings,
+        StorageBrowser,
         WebhookPage,
         DangerZone,
       ].filter(Boolean)}
@@ -33,7 +33,7 @@ const pages = {
   LabelingSettings,
   MachineLearningSettings,
   PredictionsSettings,
-  StorageSettings,
+  StorageBrowser,
   WebhookPage,
   DangerZone,
 };

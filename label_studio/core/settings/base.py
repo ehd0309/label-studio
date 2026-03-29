@@ -762,6 +762,8 @@ if get_env('MINIO_STORAGE_ENDPOINT') and not get_bool_env('MINIO_SKIP', False):
     AWS_S3_SECURE_URLS = False
     AWS_S3_URL_PROTOCOL = 'http:' if HOSTNAME.startswith('http://') else 'https:'
     AWS_S3_CUSTOM_DOMAIN = HOSTNAME.replace('http://', '').replace('https://', '') + '/data'
+    # Relative path prefix for MinIO URLs when no HOST is set (served via nginx /data/ proxy)
+    MINIO_RELATIVE_URL_PREFIX = get_env('MINIO_RELATIVE_URL_PREFIX', '')
 
 if get_env('STORAGE_TYPE') == 's3':
     CLOUD_FILE_STORAGE_ENABLED = True

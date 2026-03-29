@@ -32,3 +32,26 @@ class FileUploadSerializer(serializers.ModelSerializer):
             return obj.file.size
         except (ValueError, OSError):
             return None
+
+
+class FileUploadBrowserSerializer(serializers.ModelSerializer):
+    file = serializers.FileField(use_url=False)
+    size = serializers.SerializerMethodField()
+    url = serializers.SerializerMethodField()
+    name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = FileUpload
+        fields = ['id', 'file', 'name', 'size', 'url']
+
+    def get_size(self, obj) -> int | None:
+        try:
+            return obj.file.size
+        except (ValueError, OSError):
+            return None
+
+    def get_url(self, obj) -> str:
+        return obj.url
+
+    def get_name(self, obj) -> str:
+        return obj.file_name

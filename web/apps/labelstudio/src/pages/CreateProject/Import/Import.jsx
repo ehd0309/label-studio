@@ -474,27 +474,6 @@ export const ImportPage = ({
                       <b>Important:</b>
                       <ul className="mt-2 ml-4 list-disc font-normal">
                         <li>
-                          We recommend{" "}
-                          <a
-                            href="https://labelstud.io/guide/storage.html"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            aria-label="Cloud Storage documentation (opens in a new tab)"
-                          >
-                            Cloud Storage
-                          </a>{" "}
-                          over direct uploads due to{" "}
-                          <a
-                            href="https://labelstud.io/guide/tasks.html#Import-data-from-the-Label-Studio-UI"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            aria-label="Upload limitations documentation (opens in a new tab)"
-                          >
-                            upload limitations
-                          </a>
-                          .
-                        </li>
-                        <li>
                           For PDFs, use{" "}
                           <a
                             href="https://labelstud.io/templates/multi-page-document-annotation"
@@ -504,7 +483,7 @@ export const ImportPage = ({
                           >
                             multi-image labeling
                           </a>
-                          . JSONL or Parquet (Enterprise only) files require cloud storage.
+                          .
                         </li>
                         <li>
                           Check the documentation to{" "}

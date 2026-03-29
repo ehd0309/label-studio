@@ -51,8 +51,11 @@ class FileUpload(models.Model):
     def url(self):
         if settings.FORCE_SCRIPT_NAME and not (settings.HOSTNAME and settings.CLOUD_FILE_STORAGE_ENABLED):
             return settings.FORCE_SCRIPT_NAME + '/' + self.file.url.lstrip('/')
-        else:
-            return self.file.url
+        # When MINIO_RELATIVE_URL_PREFIX is set, generate relative URLs (e.g. /data/upload/1/file.jpg)
+        # so uploaded files work behind any reverse proxy regardless of access domain
+        if getattr(settings, 'MINIO_RELATIVE_URL_PREFIX', ''):
+            return settings.MINIO_RELATIVE_URL_PREFIX + '/' + self.file.name
+        return self.file.url
 
     @property
     def format(self):

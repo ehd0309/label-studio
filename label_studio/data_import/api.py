@@ -38,6 +38,8 @@ from users.models import User
 from webhooks.models import WebhookAction
 from webhooks.utils import emit_webhooks_for_instance
 
+from .serializers import FileUploadBrowserSerializer
+
 from label_studio.core.utils.common import load_func
 
 from .functions import (
@@ -833,6 +835,42 @@ class FileUploadListAPI(generics.mixins.ListModelMixin, generics.mixins.DestroyM
         else:
             raise ValueError('"file_upload_ids" parameter must be a list of integers')
         return Response({'deleted': deleted}, status=status.HTTP_200_OK)
+
+
+class ProjectFilesBrowseAPI(generics.GenericAPIView):
+    """List and delete uploaded files for a project (storage browser)."""
+
+    serializer_class = FileUploadBrowserSerializer
+    permission_required = ViewClassPermission(
+        GET=all_permissions.projects_view,
+        DELETE=all_permissions.projects_change,
+    )
+
+    def get(self, request, *args, **kwargs):
+        project = generics.get_object_or_404(Project.objects.for_user(request.user), pk=self.kwargs['pk'])
+        files = FileUpload.objects.filter(project_id=project.id).order_by('-id')
+        serializer = self.get_serializer(files, many=True)
+        total_size = sum(f['size'] or 0 for f in serializer.data)
+        return Response({
+            'files': serializer.data,
+            'total_count': files.count(),
+            'total_size': total_size,
+        })
+
+    def delete(self, request, *args, **kwargs):
+        project = generics.get_object_or_404(Project.objects.for_user(request.user), pk=self.kwargs['pk'])
+        ids = request.data.get('file_upload_ids')
+        if not isinstance(ids, list):
+            raise ValueError('"file_upload_ids" must be a list of integers')
+
+        file_uploads = FileUpload.objects.filter(project=project, id__in=ids)
+        # Delete associated tasks first
+        tasks_deleted, _ = Task.objects.filter(project=project, file_upload__in=file_uploads).delete()
+        files_deleted, _ = file_uploads.delete()
+        return Response({
+            'files_deleted': files_deleted,
+            'tasks_deleted': tasks_deleted,
+        }, status=status.HTTP_200_OK)
 
 
 @method_decorator(

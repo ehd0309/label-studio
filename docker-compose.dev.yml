@@ -14,6 +14,9 @@ services:
     restart: unless-stopped
     ports:
       - "8085:8080"
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
     environment:
       - LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED=true
       - LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/data
@@ -22,8 +25,43 @@ services:
       # Initial admin user (created on first run when no DB exists)
       - USERNAME=${LS_USERNAME:-ehd0309@naver.com}
       - PASSWORD=${LS_PASSWORD:-1Q2w3e4r!!}
+      # MinIO as default file storage
+      - MINIO_STORAGE_ENDPOINT=http://minio:9000
+      - MINIO_RELATIVE_URL_PREFIX=/data
+      # Allow uploads up to 11GB (in bytes)
+      - DATA_UPLOAD_MAX_MEMORY_SIZE=11811160064
+      - MINIO_STORAGE_BUCKET_NAME=label-studio
+      - MINIO_STORAGE_ACCESS_KEY=minioadmin
+      - MINIO_STORAGE_SECRET_KEY=minioadmin
     volumes:
       - ls-dev-data:/label-studio/data
 
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address ":9009"
+    restart: unless-stopped
+    ports:
+      - "9002:9000"
+      - "9009:9009"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - minio-data:/data
+
+  # One-shot container to create the default bucket
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set ls http://minio:9000 minioadmin minioadmin; do sleep 1; done;
+      mc mb --ignore-existing ls/label-studio;
+      mc anonymous set download ls/label-studio;
+      echo 'Bucket ready';
+      "
+
 volumes:
   ls-dev-data:
+  minio-data:
