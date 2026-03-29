@@ -2,9 +2,13 @@ services:
   nginx:
     image: nginx:alpine
     restart: unless-stopped
-    network_mode: host
+    ports:
+      - "8090:8090"
     volumes:
       - ./deploy/dev/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+      - minio
 
   backend:
     build:
@@ -12,8 +16,8 @@ services:
       dockerfile: Dockerfile
     image: label-studio-dev:latest
     restart: unless-stopped
-    ports:
-      - "8085:8080"
+    expose:
+      - "8080"
     depends_on:
       minio-init:
         condition: service_completed_successfully
@@ -43,8 +47,9 @@ services:
     command: server /data --console-address ":9009"
     restart: unless-stopped
     ports:
-      - "9002:9000"
       - "9009:9009"
+    expose:
+      - "9000"
     environment:
       - MINIO_ROOT_USER=minioadmin
       - MINIO_ROOT_PASSWORD=minioadmin

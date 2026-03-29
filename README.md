@@ -1,259 +1,199 @@
-<img src="https://user-images.githubusercontent.com/12534576/192582340-4c9e4401-1fe6-4dbb-95bb-fdbba5493f61.png"/>
+# Label Studio (Custom Fork)
 
-![GitHub](https://img.shields.io/github/license/heartexlabs/label-studio?logo=heartex) ![label-studio:build](https://github.com/HumanSignal/label-studio/workflows/label-studio:build/badge.svg) ![GitHub release](https://img.shields.io/github/v/release/heartexlabs/label-studio?include_prereleases)
+HumanSignal Label Studio를 기반으로 커스터마이징한 데이터 라벨링 플랫폼입니다.
+주로 대용량 비디오/이미지 어노테이션 작업에 사용됩니다.
 
-[Website](https://labelstud.io/) • [Docs](https://labelstud.io/guide/) • [Join Slack Community <img src="https://app.heartex.ai/docs/images/slack-mini.png" width="18px"/>](https://slack.labelstud.io/?source=github-1)
+## 주요 변경사항 (원본 대비)
 
+- **MinIO 글로벌 스토리지** — 프로젝트별 Cloud Storage 연결 없이 파일 업로드 시 자동으로 MinIO에 저장
+- **Presigned URL 직접 업로드** — 이미지/비디오/오디오 파일은 Django를 거치지 않고 MinIO에 직접 업로드 (전송 속도 2배)
+- **청크 업로드** — 80MB 단위 multipart upload로 Cloudflare Tunnels 100MB 제한 우회, 10GB+ 파일 지원
+- **업로드 진행률 UI** — 파일별 프로그레스 바 + 퍼센트 표시
+- **Storage Browser** — 프로젝트 Settings에서 파일 목록 확인, 다운로드, 삭제 (연관 Task 함께 삭제)
+- **초대 권한 제한** — superuser만 멤버 초대 가능 (일반 유저는 버튼 숨김 + API 403)
+- **자유 가입 차단** — 초대 링크 없이는 가입 불가 (`DISABLE_SIGNUP_WITHOUT_LINK`)
+- **Cloud Storage UI 제거** — Settings 메뉴, Import 페이지에서 Cloud Storage 관련 UI 제거
 
-## What is Label Studio?
+## 아키텍처
 
-<!-- <a href="https://labelstud.io/blog/release-130.html"><img src="https://github.com/HumanSignal/label-studio/raw/master/docs/themes/htx/source/images/release-130/LS-Hits-v1.3.png" align="right" /></a> -->
+```
+Browser
+  │
+  ├── HTTPS ──→ Cloudflare Tunnel ──→ nginx(:8090)
+  │                                      │
+  │              ┌───────────────────────┤
+  │              │                       │
+  │         /data/*              /minio-upload/*          /*
+  │              │                       │                │
+  │              ▼                       ▼                ▼
+  │         MinIO(:9000)           MinIO(:9000)     Backend(:8080)
+  │         (파일 서빙)         (presigned 업로드)   (Django + 프론트엔드)
+  │
+  └── 파일 업로드 흐름:
+       작은 파일(<80MB): presigned PUT 1회 → MinIO 직접
+       큰 파일(>80MB):  80MB 청크 분할 → multipart upload → MinIO 직접
+```
 
-Label Studio is an open source data labeling tool. It lets you label data types like audio, text, images, videos, and time series with a simple and straightforward UI and export to various model formats. It can be used to prepare raw data or improve existing training data to get more accurate ML models.
+### 서비스 구성
 
-- [Try out Label Studio](#try-out-label-studio)
-- [What you get from Label Studio](#what-you-get-from-label-studio)
-- [Included templates for labeling data in Label Studio](#included-templates-for-labeling-data-in-label-studio)
-- [Set up machine learning models with Label Studio](#set-up-machine-learning-models-with-Label-Studio)
-- [Integrate Label Studio with your existing tools](#integrate-label-studio-with-your-existing-tools)
+| 서비스 | 이미지 | 포트 (호스트) | 설명 |
+|--------|--------|--------------|------|
+| nginx | nginx:alpine | **8090** | 리버스 프록시 (유일한 외부 진입점) |
+| backend | label-studio-dev | 내부만 | Django + 빌드된 프론트엔드 |
+| minio | minio/minio | **9009** (Console만) | S3 호환 오브젝트 스토리지 |
+| minio-init | minio/mc | - | 버킷 자동 생성 (one-shot) |
 
-![Gif of Label Studio annotating different types of data](/images/annotation_examples.gif)
+### 데이터 저장
 
-Have a custom dataset? You can customize Label Studio to fit your needs. Read an [introductory blog post](https://towardsdatascience.com/introducing-label-studio-a-swiss-army-knife-of-data-labeling-140c1be92881) to learn more. 
+| 볼륨 | 내용 |
+|------|------|
+| `ls-dev-data` | SQLite DB, Django 설정 |
+| `minio-data` | 업로드된 파일 (이미지, 비디오, 오디오 등) |
 
-## Try out Label Studio
+## 실행 방법
 
-Install Label Studio locally or deploy it in a cloud instance. [Or sign up for a free trial of our Starter Cloud edition!](https://humansignal.com/platform/starter-cloud/) You can learn more about what each edition offers [here](https://labelstud.io/guide/label_studio_compare). 
-
-- [Install locally with Docker](#install-locally-with-docker)
-- [Run with Docker Compose (Label Studio + Nginx + PostgreSQL)](#run-with-docker-compose)
-- [Install locally with pip](#install-locally-with-pip)
-- [Install locally with poetry](#install-locally-with-poetry)
-- [Install locally with Anaconda](#install-locally-with-anaconda)
-- [Install for local development](#install-for-local-development)
-- [Deploy in a cloud instance](#deploy-in-a-cloud-instance)
-
-### Install locally with Docker
-Official Label Studio docker image is [here](https://hub.docker.com/r/heartexlabs/label-studio) and it can be downloaded with `docker pull`. 
-Run Label Studio in a Docker container and access it at `http://localhost:8080`.
-
+### 1. Docker 이미지 빌드
 
 ```bash
-docker pull heartexlabs/label-studio:latest
-docker run -it -p 8080:8080 -v $(pwd)/mydata:/label-studio/data heartexlabs/label-studio:latest
-```
-You can find all the generated assets, including SQLite3 database storage `label_studio.sqlite3` and uploaded files, in the `./mydata` directory.
-
-#### Override default Docker install
-You can override the default launch command by appending the new arguments:
-```bash
-docker run -it -p 8080:8080 -v $(pwd)/mydata:/label-studio/data heartexlabs/label-studio:latest label-studio --log-level DEBUG
+docker build -t label-studio-dev:latest .
 ```
 
-#### Build a local image with Docker
-If you want to build a local image, run:
-```bash
-docker build -t heartexlabs/label-studio:latest .
-```
-
-### Run with Docker Compose
-Docker Compose script provides production-ready stack consisting of the following components:
-
-- Label Studio
-- [Nginx](https://www.nginx.com/) - proxy web server used to load various static data, including uploaded audio, images, etc.
-- [PostgreSQL](https://www.postgresql.org/) - production-ready database that replaces less performant SQLite3.
-
-To start using the app from `http://localhost` run this command:
-```bash
-docker-compose up
-```
-
-### Run with Docker Compose + MinIO
-You can also run it with an additional MinIO server for local S3 storage. This is particularly useful when you want to 
-test the behavior with S3 storage on your local system. To start Label Studio in this way, you need to run the following command:
-````bash
-# Add sudo on Linux if you are not a member of the docker group
-docker compose -f docker-compose.yml -f docker-compose.minio.yml up -d
-````
-If you do not have a static IP address, you must create an entry in your hosts file so that both Label Studio and your 
-browser can access the MinIO server. For more detailed instructions, please refer to [our guide on storing data](docs/source/guide/storedata.md).
-
-
-### Install locally with pip
+### 2. 서비스 시작
 
 ```bash
-# Requires Python >=3.10
-pip install label-studio
-
-# Start the server at http://localhost:8080
-label-studio
+docker compose -f docker-compose.dev.yml up -d
 ```
 
-### Install locally with poetry
+최초 실행 시:
+- MinIO 버킷 `label-studio` 자동 생성
+- admin 계정 자동 생성 (docker-compose.dev.yml의 `USERNAME`/`PASSWORD`)
+
+### 3. 접속
+
+- **웹 UI**: http://localhost:8090
+- **MinIO Console**: http://localhost:9009 (ID: `minioadmin`)
+
+### 4. 서비스 중지
 
 ```bash
-### install poetry
-pip install poetry
-
-### set poetry environment
-poetry new my-label-studio
-cd my-label-studio
-poetry add label-studio
-
-### activate poetry environment
-poetry shell
-
-### Start the server at http://localhost:8080
-label-studio
+docker compose -f docker-compose.dev.yml down
 ```
 
-### Install locally with Anaconda
+데이터(볼륨) 포함 완전 초기화:
 
 ```bash
-conda create --name label-studio
-conda activate label-studio
-conda install psycopg2
-pip install label-studio
+docker compose -f docker-compose.dev.yml down -v
 ```
 
-### Install for local development
+## Cloudflare Tunnel 연동
 
-You can run the latest Label Studio version locally without installing the package from pypi. 
+### 설치 및 설정
 
 ```bash
-# Install all package dependencies
-pip install poetry
-poetry install
-# Run database migrations
-python label_studio/manage.py migrate
-python label_studio/manage.py collectstatic
-# Start the server in development mode at http://localhost:8080
-python label_studio/manage.py runserver
+# cloudflared 설치
+curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /tmp/cloudflared
+chmod +x /tmp/cloudflared
+
+# 로그인 (브라우저 인증 필요)
+/tmp/cloudflared tunnel login
+
+# 터널 생성
+/tmp/cloudflared tunnel create label-studio
+
+# DNS 라우팅
+/tmp/cloudflared tunnel route dns label-studio <subdomain>.<domain>
 ```
 
-### Deploy in a cloud instance
+### config.yml 예시
 
-You can deploy Label Studio with one click in Heroku, Microsoft Azure, or Google Cloud Platform: 
+```yaml
+tunnel: <tunnel-id>
+credentials-file: ~/.cloudflared/<tunnel-id>.json
 
-<a href="https://www.heroku.com/deploy?template=https://github.com/HumanSignal/label-studio/tree/heroku-persistent-pg"><img src="https://www.herokucdn.com/deploy/button.svg" alt="Deploy" height="30px"></a>
-[<img src="https://aka.ms/deploytoazurebutton" height="30px">](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fhumansignal%2Flabel-studio%2Fdevelop%2Fazuredeploy.json)
-[<img src="https://deploy.cloud.run/button.svg" height="30px">](https://deploy.cloud.run)
+ingress:
+  - hostname: <subdomain>.<domain>
+    service: http://localhost:8090
+    originRequest:
+      connectTimeout: 120s
+      noTLSVerify: true
+      tcpKeepAlive: 120s
+      keepAliveTimeout: 600s
+      disableChunkedEncoding: true
+  - service: http_status:404
+```
 
-
-#### Apply frontend changes
-
-For information about updating the frontend, see [label-studio/web/README.md](https://github.com/HumanSignal/label-studio/blob/develop/web/README.md#installation-instructions).
-
-
-#### Install dependencies on Windows 
-To run Label Studio on Windows, download and install the following wheel packages from [Gohlke builds](https://www.lfd.uci.edu/~gohlke/pythonlibs) to ensure you're using the correct version of Python:
-- [lxml](https://www.lfd.uci.edu/~gohlke/pythonlibs/#lxml)
+### 실행
 
 ```bash
-# Upgrade pip 
-pip install -U pip
-
-# If you're running Win64 with Python 3.8, install the packages downloaded from Gohlke:
-pip install lxml‑4.5.0‑cp38‑cp38‑win_amd64.whl
-
-# Install label studio
-pip install label-studio
+/tmp/cloudflared tunnel run label-studio
 ```
 
-### Run test suite
-To add the tests' dependencies to your local install:
+### CSRF 설정
+
+`docker-compose.dev.yml`의 `CSRF_TRUSTED_ORIGINS`에 Cloudflare 도메인 추가 필요:
+
+```yaml
+- CSRF_TRUSTED_ORIGINS=http://localhost:8090,https://<subdomain>.<domain>
+```
+
+## 계정 관리
+
+### 기본 admin 계정
+
+`docker-compose.dev.yml`에서 설정:
+
+```yaml
+- USERNAME=${LS_USERNAME:-testuser@cryptolab.co.kr}
+- PASSWORD=${LS_PASSWORD:-Cryptolab1!}
+```
+
+### 추가 유저 생성
 
 ```bash
-poetry install --with test
+docker exec label-studio-backend-1 python3 label_studio/manage.py shell -c "
+from users.models import User
+from organizations.models import Organization
+org = Organization.objects.first()
+u = User.objects.create_user(email='user@example.com', password='password')
+org.add_user(u)
+u.active_organization = org
+u.save(update_fields=['active_organization'])
+"
 ```
 
-Alternatively, it is possible to run the unit tests from a Docker container in which the test dependencies are installed:
+### 가입 정책
 
+- `DISABLE_SIGNUP_WITHOUT_LINK=true` — 초대 링크 없이 가입 불가
+- 초대 링크 생성은 superuser만 가능 (Organization 페이지)
+
+## 프론트엔드 개발 모드
+
+프론트엔드만 로컬에서 HMR로 개발하려면:
 
 ```bash
-make build-testing-image
-make docker-testing-shell
+# 백엔드 + MinIO는 Docker로
+docker compose -f docker-compose.dev.yml up -d
+
+# 프론트엔드 dev 서버 (별도 터미널)
+cd web
+yarn install
+DJANGO_HOSTNAME=http://localhost:8085 yarn dev --host 0.0.0.0
 ```
 
-In either case, to run the unit tests:
+이 경우 `deploy/dev/nginx.conf`에 frontend upstream 추가 및 `/react-app/` 프록시 설정이 필요합니다.
 
-```bash
-cd label_studio
+## 환경 변수 참조
 
-# sqlite3
-DJANGO_DB=sqlite DJANGO_SETTINGS_MODULE=core.settings.label_studio pytest -vv
-
-# postgres (assumes default postgres user,db,pass. Will not work in Docker
-# testing container without additional configuration)
-DJANGO_DB=default DJANGO_SETTINGS_MODULE=core.settings.label_studio pytest -vv
-```
- 
-## What you get from Label Studio
-
-https://github.com/user-attachments/assets/525ad5ff-6904-4398-b507-7e8954268d69
-
-- **Multi-user labeling** sign up and login, when you create an annotation it's tied to your account.
-- **Multiple projects** to work on all your datasets in one instance.
-- **Streamlined design** helps you focus on your task, not how to use the software.
-- **Configurable label formats** let you customize the visual interface to meet your specific labeling needs.
-- **Support for multiple data types** including images, audio, text, HTML, time-series, and video. 
-- **Import from files or from cloud storage** in Amazon AWS S3, Google Cloud Storage, or JSON, CSV, TSV, RAR, and ZIP archives. 
-- **Integration with machine learning models** so that you can visualize and compare predictions from different models and perform pre-labeling.
-- **Embed it in your data pipeline** REST API makes it easy to make it a part of your pipeline
-
-## Included templates for labeling data in Label Studio 
-
-Label Studio includes a variety of templates to help you label your data, or you can create your own using specifically designed configuration language. The most common templates and use cases for labeling include the following cases:
-
-<img src="/images/template-types.png" />
-
-## Set up machine learning models with Label Studio
-
-Connect your favorite machine learning model using the Label Studio Machine Learning SDK. Follow these steps:
-
-1. Start your own machine learning backend server. See [more detailed instructions](https://github.com/HumanSignal/label-studio-ml-backend).
-2. Connect Label Studio to the server on the model page found in project settings.
-
-This lets you:
-
-- **Pre-label** your data using model predictions. 
-- Do **online learning** and retrain your model while new annotations are being created. 
-- Do **active learning** by labeling only the most complex examples in your data.
-
-## Integrate Label Studio with your existing tools
-
-You can use Label Studio as an independent part of your machine learning workflow or integrate the frontend or backend into your existing tools.  
-
-## Ecosystem
-
-| Project | Description |
-|-|-|
-| label-studio | Server, distributed as a pip package |
-| [Frontend library](web/libs/editor/) | The Label Studio frontend library. This uses React to build the UI and mobx-state-tree for state management. |  
-| [Data Manager library](web/libs/datamanager/) | A library for the Data Manager, our data exploration tool. | 
-| [label-studio-converter](https://github.com/HumanSignal/label-studio-sdk/tree/master/src/label_studio_sdk/converter) | Encode labels in the format of your favorite machine learning library |
-| [label-studio-transformers](https://github.com/HumanSignal/label-studio-transformers) | Transformers library connected and configured for use with Label Studio |
-
-## Citation
-
-Include a citation for Label Studio in the **References** section of your articles:
-
-```tex
-@misc{Label Studio,
-  title={{Label Studio}: Data labeling software},
-  url={https://github.com/HumanSignal/label-studio},
-  note={Open source software available from https://github.com/HumanSignal/label-studio},
-  author={
-    Maxim Tkachenko and
-    Mikhail Malyuk and
-    Andrey Holmanyuk and
-    Nikolai Liubimov},
-  year={2020-2025},
-}
-```
-
-## License
-
-This software is licensed under the [Apache 2.0 LICENSE](/LICENSE) © [Heartex](https://www.heartex.com/). 2020-2025
-
-<img src="https://user-images.githubusercontent.com/12534576/192582529-cf628f58-abc5-479b-a0d4-8a3542a4b35e.png" title="Hey everyone!" width="180" />
+| 변수 | 기본값 | 설명 |
+|------|--------|------|
+| `USERNAME` | `testuser@cryptolab.co.kr` | 초기 admin 이메일 |
+| `PASSWORD` | `Cryptolab1!` | 초기 admin 비밀번호 |
+| `DISABLE_SIGNUP_WITHOUT_LINK` | `true` | 초대 링크 없이 가입 차단 |
+| `CSRF_TRUSTED_ORIGINS` | - | 허용할 origin 목록 (쉼표 구분) |
+| `MINIO_STORAGE_ENDPOINT` | `http://minio:9000` | MinIO 내부 엔드포인트 |
+| `MINIO_STORAGE_BUCKET_NAME` | `label-studio` | MinIO 버킷 이름 |
+| `MINIO_STORAGE_ACCESS_KEY` | `minioadmin` | MinIO 접근 키 |
+| `MINIO_STORAGE_SECRET_KEY` | `minioadmin` | MinIO 비밀 키 |
+| `MINIO_RELATIVE_URL_PREFIX` | `/data` | 파일 URL prefix (상대 경로) |
+| `MINIO_PROXY_PREFIX` | `/minio-upload` | presigned URL nginx 프록시 경로 |
+| `DATA_UPLOAD_MAX_MEMORY_SIZE` | `11811160064` | 최대 업로드 크기 (~11GB) |
