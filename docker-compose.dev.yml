@@ -28,6 +28,8 @@ services:
       # MinIO as default file storage
       - MINIO_STORAGE_ENDPOINT=http://minio:9000
       - MINIO_RELATIVE_URL_PREFIX=/data
+      # Presigned URL proxy: replace internal MinIO URL with nginx proxy path
+      - MINIO_PROXY_PREFIX=/minio-upload
       # Allow uploads up to 11GB (in bytes)
       - DATA_UPLOAD_MAX_MEMORY_SIZE=11811160064
       - MINIO_STORAGE_BUCKET_NAME=label-studio

@@ -25,6 +25,8 @@ export const API_CONFIG = {
     projectResetCache: "POST:/projects/:pk/summary/reset",
     projectFilesBrowse: "/projects/:pk/files-browse",
     projectFilesDelete: "DELETE:/projects/:pk/files-browse",
+    presignUpload: "POST:/projects/:pk/presign-upload",
+    registerUpload: "POST:/projects/:pk/register-upload",
 
     // Presigning
     presignUrlForTask: "/../tasks/:taskID/presign",

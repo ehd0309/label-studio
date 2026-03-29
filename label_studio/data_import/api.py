@@ -3,6 +3,7 @@
 import json
 import logging
 import mimetypes
+import os
 import time
 from urllib.parse import unquote, urlparse
 
@@ -37,6 +38,11 @@ from tasks.serializers import sanitize_prediction_import_payload
 from users.models import User
 from webhooks.models import WebhookAction
 from webhooks.utils import emit_webhooks_for_instance
+
+import uuid
+
+import boto3
+from core.utils.params import get_env
 
 from .serializers import FileUploadBrowserSerializer
 
@@ -871,6 +877,103 @@ class ProjectFilesBrowseAPI(generics.GenericAPIView):
             'files_deleted': files_deleted,
             'tasks_deleted': tasks_deleted,
         }, status=status.HTTP_200_OK)
+
+
+BINARY_EXTENSIONS = {
+    '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.tiff', '.ico',
+    '.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv',
+    '.mp3', '.wav', '.ogg', '.flac', '.aac', '.wma', '.m4a',
+}
+
+
+class PresignedUploadAPI(APIView):
+    """Generate a presigned URL for direct upload to MinIO (binary files only)."""
+
+    permission_required = all_permissions.projects_change
+
+    def post(self, request, pk):
+        project = generics.get_object_or_404(Project.objects.for_user(request.user), pk=pk)
+        filename = request.data.get('filename')
+        if not filename:
+            raise ValidationError('"filename" is required')
+
+        ext = os.path.splitext(filename)[1].lower()
+        if ext not in BINARY_EXTENSIONS:
+            return Response(
+                {'detail': f'Extension {ext} is not supported for direct upload. Use standard import.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Generate the same path pattern as upload_name_generator
+        object_key = f"{settings.UPLOAD_DIR}/{project.id}/{uuid.uuid4().hex[:8]}-{filename}"
+
+        s3 = boto3.client(
+            's3',
+            endpoint_url=settings.AWS_S3_ENDPOINT_URL,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        )
+        presigned_url = s3.generate_presigned_url(
+            'put_object',
+            Params={
+                'Bucket': settings.AWS_STORAGE_BUCKET_NAME,
+                'Key': object_key,
+                'ContentType': request.data.get('content_type', 'application/octet-stream'),
+            },
+            ExpiresIn=3600,
+        )
+
+        # Replace internal MinIO URL with nginx proxy path so browser can reach it
+        minio_proxy_prefix = get_env('MINIO_PROXY_PREFIX', '')
+        if minio_proxy_prefix:
+            presigned_url = presigned_url.replace(settings.AWS_S3_ENDPOINT_URL, minio_proxy_prefix)
+
+        return Response({
+            'presigned_url': presigned_url,
+            'object_key': object_key,
+        })
+
+
+class RegisterUploadAPI(APIView):
+    """Register a file that was directly uploaded to MinIO, creating FileUpload + Task."""
+
+    permission_required = all_permissions.projects_change
+
+    def post(self, request, pk):
+        project = generics.get_object_or_404(Project.objects.for_user(request.user), pk=pk)
+        object_key = request.data.get('object_key')
+        if not object_key:
+            raise ValidationError('"object_key" is required')
+
+        # Create FileUpload record (file field stores the object key path)
+        file_upload = FileUpload(user=request.user, project=project)
+        file_upload.file.name = object_key
+        file_upload.save()
+
+        # Create Task referencing this file
+        if settings.CLOUD_FILE_STORAGE_ENABLED:
+            data_value = object_key
+        else:
+            data_value = file_upload.url
+
+        task = Task.objects.create(
+            project=project,
+            data={settings.DATA_UNDEFINED_NAME: data_value},
+            file_upload=file_upload,
+        )
+
+        project.update_tasks_counters_and_task_states(
+            tasks_queryset=Task.objects.filter(id=task.id),
+            maximum_annotations_changed=False,
+            overlap_cohort_percentage_changed=False,
+            tasks_number_changed=True,
+        )
+
+        return Response({
+            'file_upload_id': file_upload.id,
+            'task_id': task.id,
+            'url': file_upload.url,
+        }, status=status.HTTP_201_CREATED)
 
 
 @method_decorator(
