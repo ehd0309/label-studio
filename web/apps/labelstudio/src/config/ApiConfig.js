@@ -30,6 +30,8 @@ export const API_CONFIG = {
     multipartInit: "POST:/projects/:pk/multipart/init",
     multipartPresignPart: "POST:/projects/:pk/multipart/presign-part",
     multipartComplete: "POST:/projects/:pk/multipart/complete",
+    convertWmv: "POST:/projects/:pk/convert-wmv",
+    convertWmvStatus: "/projects/:pk/convert-wmv-status",
 
     // Presigning
     presignUrlForTask: "/../tasks/:taskID/presign",

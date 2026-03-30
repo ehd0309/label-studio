@@ -521,6 +521,11 @@ SUPPORTED_EXTENSIONS = set(
         '.webm',
         '.webp',
         '.pdf',
+        '.wmv',
+        '.avi',
+        '.mov',
+        '.mkv',
+        '.flv',
     ]
 )
 

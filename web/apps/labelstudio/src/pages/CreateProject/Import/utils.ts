@@ -240,11 +240,16 @@ export const importFiles = async ({
         }
       }
     } else if (directResults.length > 0) {
+      const convertingJobs = directResults
+        .filter((r) => r.converting_job_id)
+        .map((r) => ({ job_id: r.converting_job_id, file_upload_id: r.file_upload_id }));
+
       await onFinish?.({
         task_count: directResults.length,
         annotation_count: 0,
         prediction_count: 0,
         file_upload_ids: directResults.map((r) => r.file_upload_id),
+        converting_jobs: convertingJobs.length > 0 ? convertingJobs : undefined,
       });
     }
   } catch (e: any) {

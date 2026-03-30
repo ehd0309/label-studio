@@ -879,6 +879,56 @@ class ProjectFilesBrowseAPI(generics.GenericAPIView):
         }, status=status.HTTP_200_OK)
 
 
+from data_import.conversion import start_conversion, get_job_status, is_converting
+
+
+class ConvertWmvAPI(APIView):
+    """Trigger WMV to MP4 conversion for uploaded files."""
+
+    permission_required = all_permissions.projects_change
+
+    def post(self, request, pk):
+        project = generics.get_object_or_404(Project.objects.for_user(request.user), pk=pk)
+        file_upload_ids = request.data.get('file_upload_ids', [])
+        delete_original = request.data.get('delete_original', True)
+
+        if not isinstance(file_upload_ids, list) or not file_upload_ids:
+            raise ValidationError('"file_upload_ids" must be a non-empty list')
+
+        jobs = []
+        for fid in file_upload_ids:
+            fu = FileUpload.objects.filter(id=fid, project=project).first()
+            if not fu:
+                continue
+            if not fu.file.name.lower().endswith('.wmv'):
+                continue
+            if is_converting(fid):
+                continue
+
+            job_id = start_conversion(fid, project.id, request.user.id, delete_original)
+            jobs.append({'file_upload_id': fid, 'job_id': job_id})
+
+        return Response({'jobs': jobs}, status=status.HTTP_202_ACCEPTED)
+
+
+class ConvertWmvStatusAPI(APIView):
+    """Check status of WMV to MP4 conversion jobs."""
+
+    permission_required = all_permissions.projects_view
+
+    def get(self, request, pk):
+        generics.get_object_or_404(Project.objects.for_user(request.user), pk=pk)
+        job_ids = request.query_params.get('job_ids', '').split(',')
+        result = {}
+        for jid in job_ids:
+            jid = jid.strip()
+            if jid:
+                status_info = get_job_status(jid)
+                if status_info:
+                    result[jid] = status_info
+        return Response({'jobs': result})
+
+
 BINARY_EXTENSIONS = {
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.tiff', '.ico',
     '.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv',
@@ -1073,10 +1123,19 @@ class RegisterUploadAPI(APIView):
             tasks_number_changed=True,
         )
 
+        # Auto-convert WMV to MP4 in background
+        converting_job_id = None
+        if object_key.lower().endswith('.wmv'):
+            try:
+                converting_job_id = start_conversion(file_upload.id, project.id, request.user.id, delete_original=True)
+            except Exception as e:
+                logger.warning(f'Auto-conversion failed to start: {e}')
+
         return Response({
             'file_upload_id': file_upload.id,
             'task_id': task.id,
             'url': file_upload.url,
+            'converting_job_id': converting_job_id,
         }, status=status.HTTP_201_CREATED)
 
 

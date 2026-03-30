@@ -1,0 +1,12 @@
+FROM label-studio-dev:latest
+
+USER root
+RUN apk add --no-cache ffmpeg
+
+# Copy updated backend code
+COPY --chown=1001:0 label_studio /label-studio/label_studio
+
+# Copy updated frontend build
+COPY --chown=1001:0 web/dist /label-studio/web/dist
+
+USER 1001

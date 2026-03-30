@@ -146,7 +146,8 @@ RUN apk add --no-cache \
     curl \
     nginx \
     bash \
-    procps
+    procps \
+    ffmpeg
 
 RUN set -eux; \
     mkdir -p $LS_DIR $LABEL_STUDIO_BASE_DATA_DIR $OPT_DIR && \

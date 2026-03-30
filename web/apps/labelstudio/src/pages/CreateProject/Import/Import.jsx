@@ -31,7 +31,7 @@ function flatten(nested) {
 const supportedExtensions = {
   text: ["txt"],
   audio: ["wav", "mp3", "flac", "m4a", "ogg"],
-  video: ["mp4", "webm"],
+  video: ["mp4", "webm", "wmv", "avi", "mov", "mkv", "flv"],
   image: ["bmp", "gif", "jpg", "jpeg", "png", "svg", "webp"],
   html: ["html", "htm", "xml"],
   pdf: ["pdf"],
@@ -154,6 +154,7 @@ export const ImportPage = ({
   openLabelingConfig,
 }) => {
   const [error, setError] = useState();
+  const [convertingNotice, setConvertingNotice] = useState(null);
   const [newlyUploadedFiles, setNewlyUploadedFiles] = useState(new Set());
   const prevUploadedRef = useRef(new Set());
   const api = useAPI();
@@ -199,6 +200,18 @@ export const ImportPage = ({
     ids: [],
   });
   const showList = Boolean(files.uploaded?.length || files.uploading?.length || sample);
+  const isUploading = files.uploading.length > 0;
+
+  // Prevent page navigation during upload
+  useEffect(() => {
+    if (!isUploading) return;
+    const handler = (e) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isUploading]);
 
   const loadFilesList = useCallback(
     async (file_upload_ids) => {
@@ -236,7 +249,7 @@ export const ImportPage = ({
   };
   const onFinish = useCallback(
     async (res) => {
-      const { could_be_tasks_list, data_columns, file_upload_ids } = res;
+      const { could_be_tasks_list, data_columns, file_upload_ids, converting_jobs } = res;
 
       dispatch({ ids: file_upload_ids });
       if (could_be_tasks_list && !csvHandling) setCsvHandling("choose");
@@ -244,6 +257,12 @@ export const ImportPage = ({
       addColumns(data_columns);
 
       await loadFilesList(file_upload_ids);
+
+      // Notify about WMV auto-conversion
+      if (converting_jobs?.length) {
+        setConvertingNotice(`${converting_jobs.length} WMV file(s) are being converted to MP4 in the background. Check Storage Browser for status.`);
+      }
+
       return res;
     },
     [addColumns, loadFilesList],
@@ -429,6 +448,42 @@ export const ImportPage = ({
       </header>
 
       <ErrorMessage error={error} />
+
+      {isUploading && (
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          padding: "10px 16px",
+          background: "#fef3c7",
+          border: "1px solid #fcd34d",
+          borderRadius: "8px",
+          marginBottom: "12px",
+          fontSize: "14px",
+          color: "#92400e",
+        }}>
+          <span style={{ fontSize: "16px" }}>&#9888;</span>
+          Uploading in progress. Please do not close or leave this page until the upload is complete.
+        </div>
+      )}
+
+      {convertingNotice && (
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          padding: "10px 16px",
+          background: "#f0fdf4",
+          border: "1px solid #bbf7d0",
+          borderRadius: "8px",
+          marginBottom: "12px",
+          fontSize: "14px",
+          color: "#166534",
+        }}>
+          <span style={{ fontSize: "16px" }}>&#9889;</span>
+          {convertingNotice}
+        </div>
+      )}
 
       <main>
         <Upload sendFiles={sendFiles} project={project}>
