@@ -107,18 +107,36 @@ def _do_convert(job_id, file_upload_id, project_id, user_id, delete_original):
         fu.file.name = mp4_key
         fu.save(update_fields=['file'])
 
-        # Update associated Task data
-        tasks = Task.objects.filter(file_upload=fu)
-        old_url = getattr(settings, 'MINIO_RELATIVE_URL_PREFIX', '/data') + '/' + wmv_key
+        # Create or update Task
+        from projects.models import Project
+        project = Project.objects.get(id=project_id)
         new_url = getattr(settings, 'MINIO_RELATIVE_URL_PREFIX', '/data') + '/' + mp4_key
-        for task in tasks:
-            updated = False
-            for key, val in task.data.items():
-                if isinstance(val, str) and val == old_url:
-                    task.data[key] = new_url
-                    updated = True
-            if updated:
-                task.save(update_fields=['data'])
+
+        existing_tasks = Task.objects.filter(file_upload=fu)
+        if existing_tasks.exists():
+            # Update existing task references (manual conversion from Storage Browser)
+            for task in existing_tasks:
+                old_url = getattr(settings, 'MINIO_RELATIVE_URL_PREFIX', '/data') + '/' + wmv_key
+                updated = False
+                for key, val in task.data.items():
+                    if isinstance(val, str) and val == old_url:
+                        task.data[key] = new_url
+                        updated = True
+                if updated:
+                    task.save(update_fields=['data'])
+        else:
+            # Create new Task with MP4 reference (auto-conversion after upload)
+            task = Task.objects.create(
+                project=project,
+                data={settings.DATA_UNDEFINED_NAME: mp4_key if settings.CLOUD_FILE_STORAGE_ENABLED else new_url},
+                file_upload=fu,
+            )
+            project.update_tasks_counters_and_task_states(
+                tasks_queryset=Task.objects.filter(id=task.id),
+                maximum_annotations_changed=False,
+                overlap_cohort_percentage_changed=False,
+                tasks_number_changed=True,
+            )
 
         # Delete original WMV from MinIO
         if delete_original:

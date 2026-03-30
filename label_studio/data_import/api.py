@@ -853,12 +853,25 @@ class ProjectFilesBrowseAPI(generics.GenericAPIView):
     )
 
     def get(self, request, *args, **kwargs):
+        from data_import.conversion import _conversion_jobs
+
         project = generics.get_object_or_404(Project.objects.for_user(request.user), pk=self.kwargs['pk'])
         files = FileUpload.objects.filter(project_id=project.id).order_by('-id')
         serializer = self.get_serializer(files, many=True)
         total_size = sum(f['size'] or 0 for f in serializer.data)
+
+        # Add conversion status for each file
+        converting_file_ids = set()
+        for job in _conversion_jobs.values():
+            if job['status'] in ('pending', 'converting'):
+                converting_file_ids.add(job['file_upload_id'])
+
+        files_data = serializer.data
+        for f in files_data:
+            f['converting'] = f['id'] in converting_file_ids
+
         return Response({
-            'files': serializer.data,
+            'files': files_data,
             'total_count': files.count(),
             'total_size': total_size,
         })
@@ -1089,7 +1102,8 @@ class MultipartCompleteAPI(APIView):
 
 
 class RegisterUploadAPI(APIView):
-    """Register a file that was directly uploaded to MinIO, creating FileUpload + Task."""
+    """Register a file that was directly uploaded to MinIO, creating FileUpload + Task.
+    For WMV files, Task is NOT created until conversion to MP4 completes."""
 
     permission_required = all_permissions.projects_change
 
@@ -1099,12 +1113,30 @@ class RegisterUploadAPI(APIView):
         if not object_key:
             raise ValidationError('"object_key" is required')
 
-        # Create FileUpload record (file field stores the object key path)
+        # Create FileUpload record
         file_upload = FileUpload(user=request.user, project=project)
         file_upload.file.name = object_key
         file_upload.save()
 
-        # Create Task referencing this file
+        # WMV files: don't create Task yet, start conversion first
+        if object_key.lower().endswith('.wmv'):
+            converting_job_id = None
+            try:
+                converting_job_id = start_conversion(
+                    file_upload.id, project.id, request.user.id, delete_original=True
+                )
+            except Exception as e:
+                logger.warning(f'Auto-conversion failed to start: {e}')
+
+            return Response({
+                'file_upload_id': file_upload.id,
+                'task_id': None,
+                'url': file_upload.url,
+                'converting': True,
+                'converting_job_id': converting_job_id,
+            }, status=status.HTTP_201_CREATED)
+
+        # Non-WMV: create Task immediately
         if settings.CLOUD_FILE_STORAGE_ENABLED:
             data_value = object_key
         else:
@@ -1123,19 +1155,11 @@ class RegisterUploadAPI(APIView):
             tasks_number_changed=True,
         )
 
-        # Auto-convert WMV to MP4 in background
-        converting_job_id = None
-        if object_key.lower().endswith('.wmv'):
-            try:
-                converting_job_id = start_conversion(file_upload.id, project.id, request.user.id, delete_original=True)
-            except Exception as e:
-                logger.warning(f'Auto-conversion failed to start: {e}')
-
         return Response({
             'file_upload_id': file_upload.id,
             'task_id': task.id,
             'url': file_upload.url,
-            'converting_job_id': converting_job_id,
+            'converting': False,
         }, status=status.HTTP_201_CREATED)
 
 

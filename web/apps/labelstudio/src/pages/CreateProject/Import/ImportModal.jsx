@@ -77,22 +77,11 @@ export const Inner = () => {
         <Space>
           <Button
             size="small"
-            variant="negative"
             look="outlined"
-            waiting={waiting}
-            onClick={onCancel}
-            aria-label="Cancel import"
+            onClick={() => { modal?.current?.hide(); backToDM(); }}
+            aria-label="Close import"
           >
-            Cancel
-          </Button>
-          <Button
-            size="small"
-            onClick={onFinish}
-            waiting={waiting || uploading}
-            disabled={uploadDisabled}
-            aria-label="Finish import"
-          >
-            Import
+            Close
           </Button>
         </Space>
       </Modal.Header>

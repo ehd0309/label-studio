@@ -37,8 +37,8 @@ export const StorageBrowser = () => {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState({});
   const [selected, setSelected] = useState(new Set());
-  const [converting, setConverting] = useState({}); // {fileId: {jobId, status}}
-  const pollTimers = useRef({});
+  const [manualConverting, setManualConverting] = useState({}); // manual convert button state
+  const pollTimer = useRef(null);
 
   useUpdatePageTitle(createTitleFromSegments([project?.title, "Storage Browser"]));
 
@@ -51,6 +51,7 @@ export const StorageBrowser = () => {
       });
       setData(result);
       setSelected(new Set());
+      return result;
     } catch (e) {
       console.error("Failed to fetch files", e);
     } finally {
@@ -58,13 +59,39 @@ export const StorageBrowser = () => {
     }
   }, [api, project?.id]);
 
+  // Initial fetch + auto-poll if any files are converting
   useEffect(() => {
     fetchFiles();
     return () => {
-      // Cleanup polling timers
-      Object.values(pollTimers.current).forEach(clearInterval);
+      if (pollTimer.current) clearInterval(pollTimer.current);
     };
   }, [fetchFiles]);
+
+  // Auto-poll when files are converting
+  useEffect(() => {
+    const hasConverting = data?.files?.some((f) => f.converting);
+    if (hasConverting && !pollTimer.current) {
+      pollTimer.current = setInterval(async () => {
+        if (!project?.id) return;
+        try {
+          const result = await api.callApi("projectFilesBrowse", {
+            params: { pk: project.id },
+          });
+          setData(result);
+          // Stop polling if no more converting files
+          if (!result?.files?.some((f) => f.converting)) {
+            clearInterval(pollTimer.current);
+            pollTimer.current = null;
+          }
+        } catch (e) {
+          console.error("Poll failed", e);
+        }
+      }, 5000);
+    } else if (!hasConverting && pollTimer.current) {
+      clearInterval(pollTimer.current);
+      pollTimer.current = null;
+    }
+  }, [data, api, project?.id]);
 
   const deleteFiles = useCallback(async (ids) => {
     if (!project?.id || ids.length === 0) return;
@@ -91,66 +118,32 @@ export const StorageBrowser = () => {
 
   const convertToMp4 = useCallback(async (fileId) => {
     if (!project?.id) return;
-
+    setManualConverting((prev) => ({ ...prev, [fileId]: true }));
     try {
-      const res = await api.callApi("convertWmv", {
+      await api.callApi("convertWmv", {
         params: { pk: project.id },
         body: { file_upload_ids: [fileId], delete_original: true },
       });
-
-      if (!res?.jobs?.length) return;
-
-      const { job_id } = res.jobs[0];
-      setConverting((prev) => ({ ...prev, [fileId]: { jobId: job_id, status: "converting" } }));
-
-      // Poll for status
-      const timer = setInterval(async () => {
-        try {
-          const statusRes = await api.callApi("convertWmvStatus", {
-            params: { pk: project.id },
-            query: { job_ids: job_id },
-          });
-          const jobStatus = statusRes?.jobs?.[job_id];
-          if (!jobStatus) return;
-
-          if (jobStatus.status === "completed") {
-            clearInterval(timer);
-            delete pollTimers.current[fileId];
-            setConverting((prev) => {
-              const next = { ...prev };
-              delete next[fileId];
-              return next;
-            });
-            await fetchFiles();
-          } else if (jobStatus.status === "failed") {
-            clearInterval(timer);
-            delete pollTimers.current[fileId];
-            setConverting((prev) => {
-              const next = { ...prev };
-              delete next[fileId];
-              return next;
-            });
-            window.alert(`Conversion failed: ${jobStatus.error || "Unknown error"}`);
-          }
-        } catch (e) {
-          console.error("Failed to poll conversion status", e);
-        }
-      }, 3000);
-      pollTimers.current[fileId] = timer;
+      await fetchFiles();
     } catch (e) {
       console.error("Failed to start conversion", e);
+      setManualConverting((prev) => {
+        const next = { ...prev };
+        delete next[fileId];
+        return next;
+      });
     }
   }, [api, project?.id, fetchFiles]);
 
   const convertAllWmv = useCallback(async () => {
     const files = data?.files || [];
-    const wmvFiles = files.filter((f) => isWmv(f.name) && !converting[f.id]);
+    const wmvFiles = files.filter((f) => isWmv(f.name) && !f.converting);
     if (!wmvFiles.length) return;
     if (!window.confirm(`${wmvFiles.length} WMV files will be converted to MP4. Continue?`)) return;
     for (const f of wmvFiles) {
       await convertToMp4(f.id);
     }
-  }, [data, converting, convertToMp4]);
+  }, [data, convertToMp4]);
 
   const toggleSelect = (id) => {
     setSelected((prev) => {
@@ -182,7 +175,8 @@ export const StorageBrowser = () => {
   const totalCount = data?.total_count || 0;
   const totalSize = data?.total_size || 0;
   const allSelected = files.length > 0 && selected.size === files.length;
-  const wmvCount = files.filter((f) => isWmv(f.name)).length;
+  const wmvCount = files.filter((f) => isWmv(f.name) && !f.converting).length;
+  const convertingCount = files.filter((f) => f.converting).length;
 
   return (
     <div style={{ padding: "0" }}>
@@ -194,6 +188,24 @@ export const StorageBrowser = () => {
           Files uploaded to this project are stored in MinIO.
         </Typography>
       </div>
+
+      {convertingCount > 0 && (
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          padding: "10px 16px",
+          background: "#f0fdf4",
+          border: "1px solid #bbf7d0",
+          borderRadius: "8px",
+          marginBottom: "12px",
+          fontSize: "14px",
+          color: "#166534",
+        }}>
+          <Spinner size={16} />
+          {convertingCount} file(s) converting to MP4... Tasks will be created automatically when done.
+        </div>
+      )}
 
       <div
         style={{
@@ -270,20 +282,20 @@ export const StorageBrowser = () => {
                   />
                 </th>
                 <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 500, color: "#6b7280" }}>Name</th>
-                <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 500, color: "#6b7280", width: "80px" }}>Type</th>
+                <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 500, color: "#6b7280", width: "100px" }}>Status</th>
                 <th style={{ padding: "10px 16px", textAlign: "right", fontWeight: 500, color: "#6b7280", width: "100px" }}>Size</th>
                 <th style={{ padding: "10px 16px", textAlign: "center", fontWeight: 500, color: "#6b7280", width: "220px" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {files.map((file) => {
-                const conv = converting[file.id];
+                const isConverting = file.converting || manualConverting[file.id];
                 return (
                   <tr
                     key={file.id}
                     style={{
                       borderBottom: "1px solid #f3f4f6",
-                      background: conv ? "#f0fdf4" : selected.has(file.id) ? "#eff6ff" : "transparent",
+                      background: isConverting ? "#f0fdf4" : selected.has(file.id) ? "#eff6ff" : "transparent",
                     }}
                   >
                     <td style={{ padding: "10px 12px" }}>
@@ -306,14 +318,24 @@ export const StorageBrowser = () => {
                     >
                       {file.name}
                     </td>
-                    <td style={{ padding: "10px 16px", color: "#6b7280" }}>{getFileType(file.name)}</td>
+                    <td style={{ padding: "10px 16px" }}>
+                      {isConverting ? (
+                        <span style={{ color: "#059669", fontSize: "13px", display: "flex", alignItems: "center", gap: "4px" }}>
+                          <Spinner size={12} /> Converting...
+                        </span>
+                      ) : (
+                        <span style={{ color: "#6b7280", fontSize: "13px" }}>
+                          {getFileType(file.name)}
+                        </span>
+                      )}
+                    </td>
                     <td style={{ padding: "10px 16px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                       {formatSize(file.size)}
                     </td>
                     <td style={{ padding: "10px 16px", textAlign: "center" }}>
-                      {conv ? (
+                      {isConverting ? (
                         <span style={{ color: "#059669", fontSize: "13px" }}>
-                          Converting...
+                          MP4 conversion in progress
                         </span>
                       ) : (
                         <>
