@@ -5,7 +5,6 @@ import tempfile
 import threading
 import uuid
 
-import boto3
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
@@ -50,12 +49,31 @@ def start_conversion(file_upload_id, project_id, user_id, delete_original=True):
     return job_id
 
 
+def _get_gcs_bucket():
+    """Get GCS bucket using native API (works for large file upload/download)."""
+    from google.cloud import storage as gcs_storage
+
+    bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+    key_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS', '/label-studio/gcs-sa-key.json')
+
+    if os.path.exists(key_path):
+        client = gcs_storage.Client.from_service_account_json(key_path)
+    else:
+        client = gcs_storage.Client()
+
+    return client.bucket(bucket_name)
+
+
 def _get_s3():
+    """S3 client for operations that work with S3 compatible API."""
+    import boto3
+    from botocore.config import Config
     return boto3.client(
         's3',
         endpoint_url=settings.AWS_S3_ENDPOINT_URL,
         aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
         aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        config=Config(signature_version='s3v4'),
     )
 
 
@@ -71,14 +89,20 @@ def _do_convert(job_id, file_upload_id, project_id, user_id, delete_original):
         fu = FileUpload.objects.get(id=file_upload_id, project_id=project_id)
         wmv_key = fu.file.name
         mp4_key = os.path.splitext(wmv_key)[0] + '.mp4'
+        bucket_name = settings.AWS_STORAGE_BUCKET_NAME
 
-        s3 = _get_s3()
-        bucket = settings.AWS_STORAGE_BUCKET_NAME
-
-        # Download WMV from MinIO
+        # Download WMV using GCS native API (resumable, no signature issues)
         tmp_input = tempfile.NamedTemporaryFile(suffix='.wmv', delete=False)
-        s3.download_file(bucket, wmv_key, tmp_input.name)
         tmp_input.close()
+        try:
+            bucket = _get_gcs_bucket()
+            blob = bucket.blob(wmv_key)
+            blob.download_to_filename(tmp_input.name)
+            logger.info(f'Downloaded {wmv_key} via GCS native API')
+        except Exception as e:
+            logger.warning(f'GCS native download failed ({e}), falling back to S3 API')
+            s3 = _get_s3()
+            s3.download_file(bucket_name, wmv_key, tmp_input.name)
 
         tmp_output = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
         tmp_output.close()
@@ -92,16 +116,23 @@ def _do_convert(job_id, file_upload_id, project_id, user_id, delete_original):
         # Check if output is valid (non-zero size)
         if result.returncode != 0 or os.path.getsize(tmp_output.name) < 1024:
             logger.info(f'Codec copy failed for {wmv_key}, falling back to re-encode')
-            # Fallback: re-encode with high quality
             result = subprocess.run(
-                ['ffmpeg', '-y', '-i', tmp_input.name, '-c:v', 'libx264', '-crf', '18', '-c:a', 'aac', tmp_output.name],
-                capture_output=True, text=True, timeout=7200,
+                ['ffmpeg', '-y', '-i', tmp_input.name, '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-c:a', 'aac', tmp_output.name],
+                capture_output=True, text=True, timeout=72000,
             )
             if result.returncode != 0:
                 raise RuntimeError(f'ffmpeg failed: {result.stderr[:500]}')
 
-        # Upload MP4 to MinIO
-        s3.upload_file(tmp_output.name, bucket, mp4_key)
+        # Upload MP4 using GCS native API (resumable, handles large files)
+        try:
+            bucket = _get_gcs_bucket()
+            blob = bucket.blob(mp4_key)
+            blob.upload_from_filename(tmp_output.name)
+            logger.info(f'Uploaded {mp4_key} via GCS native API')
+        except Exception as e:
+            logger.warning(f'GCS native upload failed ({e}), falling back to S3 API')
+            s3 = _get_s3()
+            s3.upload_file(tmp_output.name, bucket_name, mp4_key)
 
         # Update FileUpload record
         fu.file.name = mp4_key
@@ -114,7 +145,6 @@ def _do_convert(job_id, file_upload_id, project_id, user_id, delete_original):
 
         existing_tasks = Task.objects.filter(file_upload=fu)
         if existing_tasks.exists():
-            # Update existing task references (manual conversion from Storage Browser)
             for task in existing_tasks:
                 old_url = getattr(settings, 'MINIO_RELATIVE_URL_PREFIX', '/data') + '/' + wmv_key
                 updated = False
@@ -125,7 +155,6 @@ def _do_convert(job_id, file_upload_id, project_id, user_id, delete_original):
                 if updated:
                     task.save(update_fields=['data'])
         else:
-            # Create new Task with MP4 reference (auto-conversion after upload)
             task = Task.objects.create(
                 project=project,
                 data={settings.DATA_UNDEFINED_NAME: mp4_key if settings.CLOUD_FILE_STORAGE_ENABLED else new_url},
@@ -138,9 +167,14 @@ def _do_convert(job_id, file_upload_id, project_id, user_id, delete_original):
                 tasks_number_changed=True,
             )
 
-        # Delete original WMV from MinIO
+        # Delete original WMV
         if delete_original:
-            s3.delete_object(Bucket=bucket, Key=wmv_key)
+            try:
+                bucket = _get_gcs_bucket()
+                bucket.blob(wmv_key).delete()
+            except Exception:
+                s3 = _get_s3()
+                s3.delete_object(Bucket=bucket_name, Key=wmv_key)
 
         _conversion_jobs[job_id]['status'] = 'completed'
         _conversion_jobs[job_id]['result'] = {

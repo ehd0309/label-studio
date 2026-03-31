@@ -950,12 +950,14 @@ BINARY_EXTENSIONS = {
 
 
 def _get_s3_client():
-    """S3 client for server-side operations (uses internal MinIO endpoint)."""
+    """S3 client for server-side operations (uses internal endpoint with V4 signatures for GCS compatibility)."""
+    from botocore.config import Config
     return boto3.client(
         's3',
         endpoint_url=settings.AWS_S3_ENDPOINT_URL,
         aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
         aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        config=Config(signature_version='s3v4'),
     )
 
 
@@ -1240,28 +1242,47 @@ class FileUploadAPI(generics.RetrieveUpdateDestroyAPIView):
     ),
 )
 class UploadedFileResponse(generics.RetrieveAPIView):
-    """Serve uploaded files from local drive"""
+    """Serve uploaded files - redirects to signed URL for cloud storage, serves directly for local"""
 
     permission_classes = (IsAuthenticated,)
 
     @override_report_only_csp
     @csp(SANDBOX=[])
     def get(self, *args, **kwargs):
+        from django.http import HttpResponseRedirect
+
         request = self.request
         filename = kwargs['filename']
-        # XXX needed, on windows os.path.join generates '\' which breaks FileUpload
         file = settings.UPLOAD_DIR + ('/' if not settings.UPLOAD_DIR.endswith('/') else '') + filename
         logger.debug(f'Fetch uploaded file by user {request.user} => {file}')
         file_upload = FileUpload.objects.filter(file=file).last()
 
-        if not file_upload.has_permission(request.user):
+        if not file_upload or not file_upload.has_permission(request.user):
             return Response(status=status.HTTP_403_FORBIDDEN)
 
-        file = file_upload.file
-        if file.storage.exists(file.name):
-            content_type, encoding = mimetypes.guess_type(str(file.name))
+        # For cloud storage: generate a signed URL and redirect
+        if settings.CLOUD_FILE_STORAGE_ENABLED:
+            try:
+                s3 = _get_s3_presign_client()
+                signed_url = s3.generate_presigned_url(
+                    'get_object',
+                    Params={
+                        'Bucket': settings.AWS_STORAGE_BUCKET_NAME,
+                        'Key': file_upload.file.name,
+                    },
+                    ExpiresIn=43200,  # 12 hours
+                )
+                return HttpResponseRedirect(signed_url)
+            except Exception as e:
+                logger.error(f'Failed to generate signed URL: {e}')
+                return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # For local storage: serve file directly
+        file_obj = file_upload.file
+        if file_obj.storage.exists(file_obj.name):
+            content_type, encoding = mimetypes.guess_type(str(file_obj.name))
             content_type = content_type or 'application/octet-stream'
-            return RangedFileResponse(request, file.open(mode='rb'), content_type=content_type)
+            return RangedFileResponse(request, file_obj.open(mode='rb'), content_type=content_type)
 
         return Response(status=status.HTTP_404_NOT_FOUND)
 

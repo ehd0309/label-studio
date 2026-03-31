@@ -6,8 +6,8 @@ const BINARY_EXTENSIONS = new Set([
   "mp3", "wav", "ogg", "flac", "aac", "wma", "m4a",
 ]);
 
-// Chunk size for multipart upload (80MB — safely under Cloudflare's 100MB limit)
-const CHUNK_SIZE = 80 * 1024 * 1024;
+// Chunk size for multipart upload (5MB — minimum S3 multipart size, works on slow connections via Cloudflare)
+const CHUNK_SIZE = 5 * 1024 * 1024;
 
 function getExtension(name: string): string {
   return (name.split(".").pop() || "").toLowerCase();
