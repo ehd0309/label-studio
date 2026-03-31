@@ -39,10 +39,11 @@ class FileUploadBrowserSerializer(serializers.ModelSerializer):
     size = serializers.SerializerMethodField()
     url = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
+    created_at = serializers.SerializerMethodField()
 
     class Meta:
         model = FileUpload
-        fields = ['id', 'file', 'name', 'size', 'url']
+        fields = ['id', 'file', 'name', 'size', 'url', 'created_at']
 
     def get_size(self, obj) -> int | None:
         try:
@@ -55,3 +56,10 @@ class FileUploadBrowserSerializer(serializers.ModelSerializer):
 
     def get_name(self, obj) -> str:
         return obj.file_name
+
+    def get_created_at(self, obj) -> str | None:
+        from tasks.models import Task
+        task = Task.objects.filter(file_upload=obj).first()
+        if task and task.created_at:
+            return task.created_at.isoformat()
+        return None

@@ -117,7 +117,7 @@ def _do_convert(job_id, file_upload_id, project_id, user_id, delete_original):
         if result.returncode != 0 or os.path.getsize(tmp_output.name) < 1024:
             logger.info(f'Codec copy failed for {wmv_key}, falling back to re-encode')
             result = subprocess.run(
-                ['ffmpeg', '-y', '-i', tmp_input.name, '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-c:a', 'aac', tmp_output.name],
+                ['ffmpeg', '-y', '-i', tmp_input.name, '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-c:a', 'aac', tmp_output.name],
                 capture_output=True, text=True, timeout=72000,
             )
             if result.returncode != 0:

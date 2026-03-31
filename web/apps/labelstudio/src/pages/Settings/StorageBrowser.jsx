@@ -30,6 +30,13 @@ function isWmv(name) {
   return name?.toLowerCase().endsWith(".wmv");
 }
 
+function formatDate(isoString) {
+  if (!isoString) return "—";
+  const d = new Date(isoString);
+  return d.toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" })
+    + " " + d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+}
+
 export const StorageBrowser = () => {
   const { project } = useProject();
   const api = useAPI();
@@ -284,6 +291,7 @@ export const StorageBrowser = () => {
                 <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 500, color: "#6b7280" }}>Name</th>
                 <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 500, color: "#6b7280", width: "100px" }}>Status</th>
                 <th style={{ padding: "10px 16px", textAlign: "right", fontWeight: 500, color: "#6b7280", width: "100px" }}>Size</th>
+                <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 500, color: "#6b7280", width: "150px" }}>Date</th>
                 <th style={{ padding: "10px 16px", textAlign: "center", fontWeight: 500, color: "#6b7280", width: "220px" }}>Actions</th>
               </tr>
             </thead>
@@ -331,6 +339,9 @@ export const StorageBrowser = () => {
                     </td>
                     <td style={{ padding: "10px 16px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                       {formatSize(file.size)}
+                    </td>
+                    <td style={{ padding: "10px 16px", color: "#6b7280", fontSize: "13px", whiteSpace: "nowrap" }}>
+                      {formatDate(file.created_at)}
                     </td>
                     <td style={{ padding: "10px 16px", textAlign: "center" }}>
                       {isConverting ? (
