@@ -21,6 +21,7 @@ _api_projects_urlpatterns = [
     path('<int:pk>/multipart/init', api.MultipartInitAPI.as_view(), name='project-multipart-init'),
     path('<int:pk>/multipart/presign-part', api.MultipartPresignPartAPI.as_view(), name='project-multipart-presign-part'),
     path('<int:pk>/multipart/complete', api.MultipartCompleteAPI.as_view(), name='project-multipart-complete'),
+    path('<int:pk>/duplicate-file', api.DuplicateFileAPI.as_view(), name='project-duplicate-file'),
     path('<int:pk>/convert-wmv', api.ConvertWmvAPI.as_view(), name='project-convert-wmv'),
     path('<int:pk>/convert-wmv-status', api.ConvertWmvStatusAPI.as_view(), name='project-convert-wmv-status'),
 ]

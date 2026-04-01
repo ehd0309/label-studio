@@ -123,6 +123,29 @@ export const StorageBrowser = () => {
     }
   }, [api, project?.id, fetchFiles]);
 
+  const duplicateFile = useCallback(async (fileId, fileName) => {
+    if (!project?.id) return;
+    const ext = fileName.includes(".") ? "." + fileName.split(".").pop() : "";
+    const baseName = fileName.replace(/^[a-f0-9]{8}-/, "").replace(ext, "");
+    const newName = window.prompt("Enter name for the duplicated file:", baseName + "_copy" + ext);
+    if (!newName) return;
+
+    try {
+      const res = await api.callApi("duplicateFile", {
+        params: { pk: project.id },
+        body: { file_upload_id: fileId, new_name: newName },
+      });
+      if (res && !res.error) {
+        await fetchFiles();
+      } else {
+        window.alert("Duplication failed: " + (res?.detail || "Unknown error"));
+      }
+    } catch (e) {
+      console.error("Failed to duplicate file", e);
+      window.alert("Duplication failed");
+    }
+  }, [api, project?.id, fetchFiles]);
+
   const convertToMp4 = useCallback(async (fileId) => {
     if (!project?.id) return;
     setManualConverting((prev) => ({ ...prev, [fileId]: true }));
@@ -236,6 +259,20 @@ export const StorageBrowser = () => {
           <div style={{ fontSize: "13px", color: "#6b7280" }}>Total Size</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: "8px" }}>
+          <button
+            onClick={() => { window.location.href = `/projects/${project?.id}/data/import`; }}
+            style={{
+              padding: "6px 16px",
+              background: "#2563eb",
+              color: "#fff",
+              border: "none",
+              borderRadius: "6px",
+              fontSize: "13px",
+              cursor: "pointer",
+            }}
+          >
+            Import Files
+          </button>
           {wmvCount > 0 && (
             <button
               onClick={convertAllWmv}
@@ -292,7 +329,7 @@ export const StorageBrowser = () => {
                 <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 500, color: "#6b7280", width: "100px" }}>Status</th>
                 <th style={{ padding: "10px 16px", textAlign: "right", fontWeight: 500, color: "#6b7280", width: "100px" }}>Size</th>
                 <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 500, color: "#6b7280", width: "150px" }}>Date</th>
-                <th style={{ padding: "10px 16px", textAlign: "center", fontWeight: 500, color: "#6b7280", width: "220px" }}>Actions</th>
+                <th style={{ padding: "10px 16px", textAlign: "center", fontWeight: 500, color: "#6b7280", width: "300px" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -365,6 +402,19 @@ export const StorageBrowser = () => {
                               Convert to MP4
                             </button>
                           )}
+                          <button
+                            onClick={() => duplicateFile(file.id, file.name)}
+                            style={{
+                              color: "#7c3aed",
+                              background: "none",
+                              border: "none",
+                              fontSize: "13px",
+                              cursor: "pointer",
+                              marginRight: "12px",
+                            }}
+                          >
+                            Duplicate
+                          </button>
                           <a
                             href={file.url}
                             download

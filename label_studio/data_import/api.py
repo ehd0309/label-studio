@@ -892,6 +892,90 @@ class ProjectFilesBrowseAPI(generics.GenericAPIView):
         }, status=status.HTTP_200_OK)
 
 
+class DuplicateFileAPI(APIView):
+    """Duplicate an uploaded file with a new name."""
+
+    permission_required = all_permissions.projects_change
+
+    def post(self, request, pk):
+        project = generics.get_object_or_404(Project.objects.for_user(request.user), pk=pk)
+        file_upload_id = request.data.get('file_upload_id')
+        new_name = request.data.get('new_name')
+
+        if not file_upload_id or not new_name:
+            raise ValidationError('"file_upload_id" and "new_name" are required')
+
+        fu = FileUpload.objects.filter(id=file_upload_id, project=project).first()
+        if not fu:
+            return Response({'detail': 'File not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        old_key = fu.file.name
+        # Build new key: same directory, new filename with uuid prefix
+        dir_path = os.path.dirname(old_key)
+        new_key = f"{dir_path}/{uuid.uuid4().hex[:8]}-{new_name}"
+
+        bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+
+        # Copy file in storage
+        try:
+            from data_import.conversion import _get_gcs_bucket
+            bucket = _get_gcs_bucket()
+            source_blob = bucket.blob(old_key)
+            bucket.copy_blob(source_blob, bucket, new_key)
+        except Exception as e:
+            logger.warning(f'GCS native copy failed ({e}), trying S3 API')
+            try:
+                s3 = _get_s3_client()
+                s3.copy_object(
+                    Bucket=bucket_name,
+                    CopySource={'Bucket': bucket_name, 'Key': old_key},
+                    Key=new_key,
+                )
+            except Exception as e2:
+                return Response({'detail': f'File copy failed: {e2}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Create new FileUpload record
+        new_fu = FileUpload(user=request.user, project=project)
+        new_fu.file.name = new_key
+        new_fu.save()
+
+        # Create Task for the duplicated file
+        # Find the data key from the original task
+        original_task = Task.objects.filter(file_upload=fu).first()
+        if original_task:
+            new_data = {}
+            old_url = getattr(settings, 'MINIO_RELATIVE_URL_PREFIX', '/data') + '/' + old_key
+            new_url = getattr(settings, 'MINIO_RELATIVE_URL_PREFIX', '/data') + '/' + new_key
+            for key, val in original_task.data.items():
+                if isinstance(val, str) and (val == old_url or val == old_key):
+                    new_data[key] = new_key if val == old_key else new_url
+                else:
+                    new_data[key] = val
+        else:
+            new_data = {settings.DATA_UNDEFINED_NAME: new_key if settings.CLOUD_FILE_STORAGE_ENABLED else
+                        getattr(settings, 'MINIO_RELATIVE_URL_PREFIX', '/data') + '/' + new_key}
+
+        task = Task.objects.create(
+            project=project,
+            data=new_data,
+            file_upload=new_fu,
+        )
+
+        project.update_tasks_counters_and_task_states(
+            tasks_queryset=Task.objects.filter(id=task.id),
+            maximum_annotations_changed=False,
+            overlap_cohort_percentage_changed=False,
+            tasks_number_changed=True,
+        )
+
+        return Response({
+            'file_upload_id': new_fu.id,
+            'task_id': task.id,
+            'name': new_name,
+            'url': new_fu.url,
+        }, status=status.HTTP_201_CREATED)
+
+
 from data_import.conversion import start_conversion, get_job_status, is_converting
 
 
