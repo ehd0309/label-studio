@@ -11,9 +11,14 @@ import "./Timeline.prefix.css";
 import type { TimelineContextValue, TimelineControlsStepHandler, TimelineProps } from "./Types";
 import { default as Views } from "./Views";
 
+// Zoom limits: 0.25x (zoomed out 4x) to 5x (zoomed in 5x)
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 5;
+const ZOOM_STEP = 1.25;
+
 const TimelineComponent: FC<TimelineProps> = ({
   regions,
-  zoom = 1,
+  zoom: zoomProp,
   mode = "frames",
   length = 1024,
   position = 1,
@@ -37,6 +42,22 @@ const TimelineComponent: FC<TimelineProps> = ({
   ...props
 }) => {
   const View = Views[mode];
+
+  // Zoom: controlled if zoomProp provided, otherwise uncontrolled with internal state
+  const [internalZoom, setInternalZoom] = useState(zoomProp ?? 1);
+  const zoom = zoomProp ?? internalZoom;
+
+  const setZoom = (newZoom: number) => {
+    const clamped = clamp(newZoom, MIN_ZOOM, MAX_ZOOM);
+    if (zoomProp === undefined) {
+      setInternalZoom(clamped);
+    }
+    props.onZoom?.(clamped);
+  };
+
+  const zoomIn = () => setZoom(zoom * ZOOM_STEP);
+  const zoomOut = () => setZoom(zoom / ZOOM_STEP);
+  const zoomReset = () => setZoom(1);
 
   const [currentPosition, setCurrentPosition] = useState(clamp(position, 1, Number.POSITIVE_INFINITY));
   const [seekOffset, setSeekOffset] = useState(0);
@@ -136,6 +157,10 @@ const TimelineComponent: FC<TimelineProps> = ({
         altHopSize={altHopSize}
         customControls={props.customControls}
         collapsed={viewCollapsed}
+        zoom={zoom}
+        minZoom={MIN_ZOOM}
+        maxZoom={MAX_ZOOM}
+        onZoom={setZoom}
         onPlay={() => handlers.onPlay?.()}
         onPause={() => handlers.onPause?.()}
         fullscreen={fullscreen}
