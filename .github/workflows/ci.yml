@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+
+# Cancel in-progress runs for the same PR when a new commit is pushed
+concurrency:
+  group: ci-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+          cache-dependency-path: web/yarn.lock
+
+      - name: Install dependencies
+        working-directory: web
+        run: yarn install --frozen-lockfile --ignore-engines --prefer-offline --non-interactive
+
+      # Lint is non-blocking by request — surface issues without failing the PR
+      - name: Lint (non-blocking)
+        working-directory: web
+        run: yarn lint || true
+        continue-on-error: true
+
+      # Build is the critical gate
+      - name: Build frontend (production)
+        working-directory: web
+        env:
+          NODE_ENV: production
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: yarn run build
+
+      - name: Verify build artifacts
+        run: |
+          set -e
+          test -d web/dist/apps/labelstudio
+          test -f web/dist/apps/labelstudio/main.js
+          test -f web/dist/apps/labelstudio/main.css
+          # Bundles must contain editor and datamanager (inlined as libs)
+          grep -q "datamanager" web/dist/apps/labelstudio/main.js
+          echo "All build artifacts verified"
+          du -sh web/dist/apps/labelstudio
