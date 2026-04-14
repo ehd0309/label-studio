@@ -1,0 +1,145 @@
+name: Deploy to GCP
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag suffix (default: timestamp)"
+        required: false
+        default: ""
+
+# Only one deploy at a time
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+          cache-dependency-path: web/yarn.lock
+
+      - name: Install dependencies
+        working-directory: web
+        run: yarn install --frozen-lockfile --ignore-engines --prefer-offline --non-interactive
+
+      - name: Build frontend (production)
+        working-directory: web
+        env:
+          NODE_ENV: production
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: yarn run build
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=$(date +%Y%m%d-%H%M)-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Package source for build on GCP
+        run: |
+          tar czf /tmp/source.tar.gz \
+            web/dist \
+            label_studio \
+            Dockerfile.patch \
+            docker-compose.dev.yml \
+            deploy/dev
+          ls -lh /tmp/source.tar.gz
+
+      - name: Transfer source to GCP
+        run: |
+          gcloud compute scp /tmp/source.tar.gz \
+            ${{ secrets.GCP_INSTANCE }}:/tmp/source.tar.gz \
+            --zone=${{ secrets.GCP_ZONE }} \
+            --tunnel-through-iap || \
+          gcloud compute scp /tmp/source.tar.gz \
+            ${{ secrets.GCP_INSTANCE }}:/tmp/source.tar.gz \
+            --zone=${{ secrets.GCP_ZONE }}
+
+      - name: Build image and deploy on GCP (rolling restart)
+        env:
+          IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          gcloud compute ssh ${{ secrets.GCP_INSTANCE }} \
+            --zone=${{ secrets.GCP_ZONE }} \
+            --command="bash -s" -- <<EOF
+          set -e
+          cd /home/pds0309/label-studio
+
+          echo '=== Pre-deploy check ==='
+          if sudo docker exec label-studio-backend-1 ps aux 2>/dev/null | grep -v grep | grep -q ffmpeg; then
+            echo "::warning::ffmpeg conversion is in progress; deployment will interrupt it"
+          fi
+
+          echo '=== Extract source ==='
+          tar xzf /tmp/source.tar.gz
+          rm /tmp/source.tar.gz
+
+          echo '=== Build image (tag: ${IMAGE_TAG}) ==='
+          sudo DOCKER_BUILDKIT=1 docker build \
+            -t label-studio-dev:latest \
+            -t label-studio-dev:${IMAGE_TAG} \
+            -f Dockerfile.patch .
+
+          echo '=== Deploy ==='
+          sudo docker compose up -d --force-recreate backend
+
+          echo '=== Cleanup old images (keep latest + last 5 tagged) ==='
+          sudo docker images label-studio-dev --format '{{.Tag}} {{.ID}}' \
+            | grep -v '^latest ' \
+            | tail -n +6 \
+            | awk '{print \$2}' \
+            | xargs -r sudo docker rmi -f 2>/dev/null || true
+
+          echo '=== Done ==='
+          sudo docker images label-studio-dev --format 'table {{.Tag}}\t{{.CreatedAt}}' | head -10
+          EOF
+
+      - name: Verify deployment
+        run: |
+          # Wait for backend to be up
+          for i in {1..30}; do
+            sleep 5
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://ls.3pools.org/ || echo "000")
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "302" ] || [ "$STATUS" = "200" ]; then
+              echo "::notice::Deployment verified successfully (HTTP $STATUS)"
+              exit 0
+            fi
+          done
+          echo "::error::Deployment verification failed after 30 attempts"
+          exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image tag:** \`${{ steps.tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL:** https://ls.3pools.org" >> $GITHUB_STEP_SUMMARY
