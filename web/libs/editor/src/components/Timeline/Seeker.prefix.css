@@ -1,7 +1,7 @@
 .seeker {
   width: 100%;
-  min-height: 40px;
-  max-height: 160px;
+  min-height: 80px;
+  max-height: 320px;
   height: auto;
   position: relative;
 

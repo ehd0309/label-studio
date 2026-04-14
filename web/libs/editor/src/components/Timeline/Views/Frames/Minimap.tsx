@@ -7,10 +7,10 @@ import { visualizeLifespans } from "./Utils";
 import "./Minimap.prefix.css";
 
 // Visual constants - kept in sync with Minimap.prefix.css
-const MAX_MINIMAP_REGIONS = 20;
-const MIN_HEIGHT_PX = 40;
-const MAX_HEIGHT_PX = 160;
-const ROW_HEIGHT_PX = 6; // 4px height + 2px row gap/padding
+const MAX_MINIMAP_REGIONS = 30;
+const MIN_HEIGHT_PX = 80;
+const MAX_HEIGHT_PX = 320;
+const ROW_HEIGHT_PX = 14; // 10px region height + 2px padding + 2px gap
 const HEADER_RESERVED_PX = 16;
 
 export interface MinimapProps {
