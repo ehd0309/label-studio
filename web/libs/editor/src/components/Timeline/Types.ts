@@ -156,6 +156,10 @@ export type TimelineSettings = {
   spectrogramMaxDb?: number;
   spectrogramVisible?: boolean;
   spectrogramScale?: SpectrogramScale;
+
+  /** Minimap (timeline overview) configuration */
+  minimapMaxRegions?: number;
+  minimapVisible?: boolean;
 };
 
 export type TimelineStepFunction = (
