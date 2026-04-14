@@ -13,6 +13,8 @@ import {
   IconRewind,
   IconTimelinePause,
   IconTimelinePlay,
+  IconZoomIn,
+  IconZoomOut,
 } from "@humansignal/icons";
 import { Button, type ButtonProps, Space } from "@humansignal/ui";
 import { type FC, memo, type MouseEvent, useCallback, useContext, useEffect, useMemo, useState } from "react";
@@ -73,6 +75,10 @@ export const Controls: FC<TimelineControlsProps> = memo(
     toggleVisibility,
     layerVisibility,
     mediaType,
+    zoom,
+    minZoom,
+    maxZoom,
+    onZoom,
     ...props
   }) => {
     const { settings } = useContext(TimelineContext);
@@ -317,6 +323,32 @@ export const Controls: FC<TimelineControlsProps> = memo(
             {customControls?.rightCenter}
           </Space>
           <Space className={cn("timeline-controls").elem("group").toClassName()} collapsed>
+            {!disableFrames && onZoom && (
+              <>
+                <ControlButton
+                  tooltip={`Zoom out${zoom ? ` (${zoom.toFixed(2)}x)` : ""}`}
+                  disabled={!!(zoom && minZoom && zoom <= minZoom + 0.001)}
+                  onClick={() => zoom && onZoom(zoom / 1.25)}
+                >
+                  <IconZoomOut />
+                </ControlButton>
+                <ControlButton
+                  tooltip="Reset zoom (1x)"
+                  onClick={() => onZoom(1)}
+                >
+                  <span style={{ fontSize: 11, fontWeight: 600, minWidth: 28, textAlign: "center" }}>
+                    {zoom ? `${zoom.toFixed(zoom < 1 ? 2 : 1)}x` : "1x"}
+                  </span>
+                </ControlButton>
+                <ControlButton
+                  tooltip={`Zoom in${zoom ? ` (${zoom.toFixed(2)}x)` : ""}`}
+                  disabled={!!(zoom && maxZoom && zoom >= maxZoom - 0.001)}
+                  onClick={() => zoom && onZoom(zoom * 1.25)}
+                >
+                  <IconZoomIn />
+                </ControlButton>
+              </>
+            )}
             {!disableFrames && allowViewCollapse && (
               <ControlButton tooltip="Toggle Timeline" onClick={() => onToggleCollapsed?.(!collapsed)}>
                 {collapsed ? <IconExpand /> : <IconCollapse />}
