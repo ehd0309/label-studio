@@ -76,49 +76,48 @@ jobs:
         run: |
           gcloud compute scp /tmp/source.tar.gz \
             ${{ secrets.GCP_INSTANCE }}:/tmp/source.tar.gz \
-            --zone=${{ secrets.GCP_ZONE }} \
-            --tunnel-through-iap || \
-          gcloud compute scp /tmp/source.tar.gz \
-            ${{ secrets.GCP_INSTANCE }}:/tmp/source.tar.gz \
             --zone=${{ secrets.GCP_ZONE }}
 
       - name: Build image and deploy on GCP (rolling restart)
         env:
           IMAGE_TAG: ${{ steps.tag.outputs.tag }}
         run: |
+          # SSH user is the SA-mapped account (sa_*) which lacks access to
+          # /home/pds0309/label-studio. Run all commands as root via sudo bash.
           gcloud compute ssh ${{ secrets.GCP_INSTANCE }} \
             --zone=${{ secrets.GCP_ZONE }} \
-            --command="bash -s" -- <<EOF
+            --command="sudo bash -s" -- <<EOF
           set -e
-          cd /home/pds0309/label-studio
+          PROJECT_DIR=/home/pds0309/label-studio
+          cd "\$PROJECT_DIR"
 
           echo '=== Pre-deploy check ==='
-          if sudo docker exec label-studio-backend-1 ps aux 2>/dev/null | grep -v grep | grep -q ffmpeg; then
+          if docker exec label-studio-backend-1 ps aux 2>/dev/null | grep -v grep | grep -q ffmpeg; then
             echo "::warning::ffmpeg conversion is in progress; deployment will interrupt it"
           fi
 
           echo '=== Extract source ==='
-          tar xzf /tmp/source.tar.gz
+          tar xzf /tmp/source.tar.gz -C "\$PROJECT_DIR"
           rm /tmp/source.tar.gz
 
           echo '=== Build image (tag: ${IMAGE_TAG}) ==='
-          sudo DOCKER_BUILDKIT=1 docker build \
+          DOCKER_BUILDKIT=1 docker build \
             -t label-studio-dev:latest \
             -t label-studio-dev:${IMAGE_TAG} \
             -f Dockerfile.patch .
 
           echo '=== Deploy ==='
-          sudo docker compose up -d --force-recreate backend
+          docker compose up -d --force-recreate backend
 
           echo '=== Cleanup old images (keep latest + last 5 tagged) ==='
-          sudo docker images label-studio-dev --format '{{.Tag}} {{.ID}}' \
+          docker images label-studio-dev --format '{{.Tag}} {{.ID}}' \
             | grep -v '^latest ' \
             | tail -n +6 \
             | awk '{print \$2}' \
-            | xargs -r sudo docker rmi -f 2>/dev/null || true
+            | xargs -r docker rmi -f 2>/dev/null || true
 
           echo '=== Done ==='
-          sudo docker images label-studio-dev --format 'table {{.Tag}}\t{{.CreatedAt}}' | head -10
+          docker images label-studio-dev --format 'table {{.Tag}}\t{{.CreatedAt}}' | head -10
           EOF
 
       - name: Verify deployment
