@@ -173,7 +173,11 @@ const TimelineComponent: FC<TimelineProps> = ({
           seekVisible={seekVisibleWidth}
           onIndicatorMove={setSeekOffset}
           onSeek={setInternalPosition}
-          minimap={View.Minimap ? <View.Minimap /> : null}
+          minimap={
+            View.Minimap && View.settings?.minimapVisible !== false ? (
+              <View.Minimap maxRegions={View.settings?.minimapMaxRegions} />
+            ) : null
+          }
         />
       )}
     </div>
