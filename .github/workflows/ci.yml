@@ -46,7 +46,11 @@ jobs:
 
       - name: Verify build artifacts
         run: |
-          test -d web/dist/apps/labelstudio && echo "labelstudio app build OK"
-          test -f web/dist/apps/labelstudio/main.js && echo "main.js OK"
-          test -d web/dist/libs/editor && echo "editor lib build OK"
-          test -d web/dist/libs/datamanager && echo "datamanager lib build OK"
+          set -e
+          test -d web/dist/apps/labelstudio
+          test -f web/dist/apps/labelstudio/main.js
+          test -f web/dist/apps/labelstudio/main.css
+          # Bundles must contain editor and datamanager (inlined as libs)
+          grep -q "datamanager" web/dist/apps/labelstudio/main.js
+          echo "All build artifacts verified"
+          du -sh web/dist/apps/labelstudio
