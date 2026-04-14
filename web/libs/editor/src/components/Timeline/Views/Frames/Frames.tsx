@@ -110,6 +110,14 @@ export const Frames: FC<TimelineViewProps> = ({
 
   const scrollHandler = useCallback(
     (e) => {
+      // Ctrl/Cmd + wheel = zoom (when onZoom is provided)
+      if ((e.ctrlKey || e.metaKey) && props.onZoom && props.zoom) {
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+        props.onZoom(props.zoom * factor);
+        return;
+      }
+
       const scroll = scrollable.current!;
 
       if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
@@ -124,7 +132,7 @@ export const Frames: FC<TimelineViewProps> = ({
         setScroll({ top: newOffsetY });
       }
     },
-    [scrollable, offsetX, offsetY, setScroll],
+    [scrollable, offsetX, offsetY, setScroll, props.onZoom, props.zoom],
   );
 
   const currentOffsetX = useMemo(() => {

@@ -217,6 +217,9 @@ export interface TimelineControlsProps {
   onVolumeChange: TimelineProps["onVolumeChange"];
   onSpeedChange?: TimelineProps["onSpeedChange"];
   onZoom?: TimelineProps["onZoom"];
+  zoom?: number;
+  minZoom?: number;
+  maxZoom?: number;
   onAmpChange?: (amp: number) => void;
   onSpectrogramFftSamplesChange?: (samples: number) => void;
   onNumberOfMelBandsChange?: (bands: number) => void;
