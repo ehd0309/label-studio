@@ -8,19 +8,20 @@ import "./Minimap.prefix.css";
 
 // Visual constants - kept in sync with Minimap.prefix.css
 const MAX_MINIMAP_REGIONS = 30;
-const MIN_HEIGHT_PX = 80;
-const MAX_HEIGHT_PX = 320;
-const ROW_HEIGHT_PX = 14; // 10px region height + 2px padding + 2px gap
-const HEADER_RESERVED_PX = 16;
+const MIN_HEIGHT_PX = 100;
+const MAX_HEIGHT_PX = 420;
+const ROW_HEIGHT_PX = 18; // 14px region height + 4px row gap
+const HEADER_RESERVED_PX = 14;
+const SIDEBAR_WIDTH_PX = 140;
 
 export interface MinimapProps {
-  /** Maximum number of regions to render. Defaults to 20. */
+  /** Maximum number of regions to render. Defaults to 30. */
   maxRegions?: number;
 }
 
 export const Minimap: FC<MinimapProps> = ({ maxRegions = MAX_MINIMAP_REGIONS }) => {
   const { regions, length } = useContext(TimelineContext);
-  const root = useRef<HTMLDivElement>();
+  const chartRef = useRef<HTMLDivElement>();
   const [step, setStep] = useState(0);
 
   const visibleRegions = regions.slice(0, maxRegions);
@@ -78,12 +79,14 @@ export const Minimap: FC<MinimapProps> = ({ maxRegions = MAX_MINIMAP_REGIONS }) 
     return result;
   }, [visualization, length, step]);
 
-  const { width: rootWidth = 0 } = useResizeObserver(root.current || []);
+  // Step is computed against the chart area (excluding the sidebar) so positions
+  // stay accurate even when the sidebar takes a fixed amount of horizontal space.
+  const { width: chartWidth = 0 } = useResizeObserver(chartRef.current || []);
   useEffect(() => {
-    if (isDefined(root.current) && length > 0) {
-      setStep(rootWidth / length);
+    if (isDefined(chartRef.current) && length > 0) {
+      setStep(chartWidth / length);
     }
-  }, [length, rootWidth]);
+  }, [length, chartWidth]);
 
   // Dynamic height: shrink for few rows, grow up to max for many; scroll above that
   const targetHeight = Math.min(
@@ -93,21 +96,36 @@ export const Minimap: FC<MinimapProps> = ({ maxRegions = MAX_MINIMAP_REGIONS }) 
 
   return (
     <div
-      ref={root as any}
       className={cn("minimap").toClassName()}
       style={{ height: targetHeight, overflowY: hasOverflow ? "auto" : "hidden" }}
     >
-      <div className={cn("minimap").elem("backdrop").toClassName()} aria-hidden />
-
-      {visualization.map(({ id, color, label, lifespans }) => {
-        return (
+      <div
+        className={cn("minimap").elem("sidebar").toClassName()}
+        style={{ width: SIDEBAR_WIDTH_PX }}
+        aria-hidden
+      >
+        {visualization.map(({ id, color, label }) => (
           <div
-            key={id}
-            className={cn("minimap").elem("region").toClassName()}
+            key={`label-${id}`}
+            className={cn("minimap").elem("label").toClassName()}
             style={{ "--color": color } as any}
             title={label}
           >
-            <span className={cn("minimap").elem("label").toClassName()}>{label}</span>
+            <span className={cn("minimap").elem("label-swatch").toClassName()} />
+            <span className={cn("minimap").elem("label-text").toClassName()}>{label}</span>
+          </div>
+        ))}
+      </div>
+
+      <div ref={chartRef as any} className={cn("minimap").elem("chart").toClassName()}>
+        <div className={cn("minimap").elem("backdrop").toClassName()} aria-hidden />
+
+        {visualization.map(({ id, color, lifespans }) => (
+          <div
+            key={`row-${id}`}
+            className={cn("minimap").elem("region").toClassName()}
+            style={{ "--color": color } as any}
+          >
             {lifespans.map((connection, i) => {
               const isLast = i + 1 === lifespans.length;
               const left = connection.start * step;
@@ -122,27 +140,27 @@ export const Minimap: FC<MinimapProps> = ({ maxRegions = MAX_MINIMAP_REGIONS }) 
               );
             })}
           </div>
-        );
-      })}
+        ))}
 
-      {overlaps.length > 0 && (
-        <div className={cn("minimap").elem("overlap-layer").toClassName()} aria-hidden>
-          {overlaps.map((o, i) => (
-            <div
-              key={`ov-${i}`}
-              className={cn("minimap").elem("overlap").toClassName()}
-              style={{ left: o.start, width: o.width, opacity: Math.min(0.15 + o.depth * 0.1, 0.55) }}
-              title={`${o.depth} overlapping regions`}
-            />
-          ))}
-        </div>
-      )}
+        {overlaps.length > 0 && (
+          <div className={cn("minimap").elem("overlap-layer").toClassName()} aria-hidden>
+            {overlaps.map((o, i) => (
+              <div
+                key={`ov-${i}`}
+                className={cn("minimap").elem("overlap").toClassName()}
+                style={{ left: o.start, width: o.width, opacity: Math.min(0.15 + o.depth * 0.1, 0.55) }}
+                title={`${o.depth} overlapping regions`}
+              />
+            ))}
+          </div>
+        )}
 
-      {hasOverflow && (
-        <div className={cn("minimap").elem("overflow-badge").toClassName()} aria-hidden>
-          +{regions.length - maxRegions} more
-        </div>
-      )}
+        {hasOverflow && (
+          <div className={cn("minimap").elem("overflow-badge").toClassName()} aria-hidden>
+            +{regions.length - maxRegions} more
+          </div>
+        )}
+      </div>
     </div>
   );
 };
