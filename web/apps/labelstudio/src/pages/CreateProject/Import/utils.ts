@@ -20,6 +20,27 @@ function isBinaryFile(name: string): boolean {
 type ProgressCallback = (fileName: string, percent: number) => void;
 
 /**
+ * Retry an async operation with exponential backoff. Retries on any thrown error.
+ * Large multipart uploads (10GB+ / 2000+ parts) used to abort entirely on a single
+ * transient network blip (a stalled part, or a failed init) — this makes each step
+ * resilient so one hiccup no longer discards the whole upload.
+ */
+async function withRetry<T>(fn: () => Promise<T>, label: string, retries = 3, baseDelayMs = 1000): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, baseDelayMs * 2 ** (attempt - 1)));
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(`${label} failed after ${retries} attempts`);
+}
+
+/**
  * Upload a small binary file using a single presigned PUT.
  */
 async function singlePresignedUpload(file: File, project: APIProject, onProgress?: ProgressCallback): Promise<string> {
@@ -38,10 +59,13 @@ async function singlePresignedUpload(file: File, project: APIProject, onProgress
  * Upload a large binary file using S3 multipart upload with chunked presigned URLs.
  */
 async function multipartUpload(file: File, project: APIProject, onProgress?: ProgressCallback): Promise<string> {
-  const initRes = await API.invoke("multipartInit", { pk: project.id }, {
-    body: { filename: file.name, content_type: file.type || "application/octet-stream" },
-  });
-  if (!initRes || initRes.error) throw new Error(initRes?.error || "Failed to initiate multipart upload");
+  const initRes = await withRetry(async () => {
+    const res = await API.invoke("multipartInit", { pk: project.id }, {
+      body: { filename: file.name, content_type: file.type || "application/octet-stream" },
+    });
+    if (!res || res.error) throw new Error(res?.error || "Failed to initiate multipart upload");
+    return res;
+  }, "multipart init");
 
   const { upload_id, object_key } = initRes;
   const totalParts = Math.ceil(file.size / CHUNK_SIZE);
@@ -53,23 +77,30 @@ async function multipartUpload(file: File, project: APIProject, onProgress?: Pro
     const chunk = file.slice(start, end);
     const partNumber = i + 1;
 
-    const partRes = await API.invoke("multipartPresignPart", { pk: project.id }, {
-      body: { object_key, upload_id, part_number: partNumber },
-    });
-    if (!partRes || partRes.error) throw new Error(partRes?.error || `Failed to get presigned URL for part ${partNumber}`);
-
-    const etag = await uploadWithXHR(partRes.presigned_url, chunk, "application/octet-stream", (chunkPct) => {
-      // Overall progress: completed parts + current chunk progress
-      const overallPct = Math.round(((i + chunkPct / 100) / totalParts) * 100);
-      onProgress?.(file.name, overallPct);
-    });
+    // Re-presign + upload together so a stale URL or a stalled PUT both recover on retry.
+    const etag = await withRetry(async () => {
+      const partRes = await API.invoke("multipartPresignPart", { pk: project.id }, {
+        body: { object_key, upload_id, part_number: partNumber },
+      });
+      if (!partRes || partRes.error) {
+        throw new Error(partRes?.error || `Failed to get presigned URL for part ${partNumber}`);
+      }
+      return await uploadWithXHR(partRes.presigned_url, chunk, "application/octet-stream", (chunkPct) => {
+        // Overall progress: completed parts + current chunk progress
+        const overallPct = Math.round(((i + chunkPct / 100) / totalParts) * 100);
+        onProgress?.(file.name, overallPct);
+      });
+    }, `part ${partNumber}`);
     parts.push({ PartNumber: partNumber, ETag: etag });
   }
 
-  const completeRes = await API.invoke("multipartComplete", { pk: project.id }, {
-    body: { object_key, upload_id, parts },
-  });
-  if (!completeRes || completeRes.error) throw new Error(completeRes?.error || "Failed to complete multipart upload");
+  await withRetry(async () => {
+    const res = await API.invoke("multipartComplete", { pk: project.id }, {
+      body: { object_key, upload_id, parts },
+    });
+    if (!res || res.error) throw new Error(res?.error || "Failed to complete multipart upload");
+    return res;
+  }, "multipart complete");
 
   return object_key;
 }
