@@ -6,8 +6,20 @@ const BINARY_EXTENSIONS = new Set([
   "mp3", "wav", "ogg", "flac", "aac", "wma", "m4a",
 ]);
 
-// Chunk size for multipart upload (5MB — minimum S3 multipart size, works on slow connections via Cloudflare)
-const CHUNK_SIZE = 5 * 1024 * 1024;
+// Chunk size for multipart upload. Larger chunks => far fewer parts (an 8GB file is
+// ~250 parts at 32MB vs ~1600 at 5MB), which shortens total upload time and the window
+// in which a backgrounded/suspended tab can stall the transfer. (We are no longer behind
+// Cloudflare Tunnel, so the old 5MB constraint no longer applies.)
+const CHUNK_SIZE = 32 * 1024 * 1024;
+
+// How many parts to upload concurrently. Keeps wall-clock down while bounding peak
+// memory/connections (UPLOAD_CONCURRENCY * CHUNK_SIZE of in-flight buffers).
+const UPLOAD_CONCURRENCY = 4;
+
+// Multipart sessions are persisted here so an interrupted upload of the same file can
+// resume (reuse upload_id + already-uploaded parts) instead of restarting from part 1.
+const RESUME_STORE_PREFIX = "ls_mpu_v1:";
+const RESUME_MAX_AGE_MS = 24 * 60 * 60 * 1000; // ignore sessions older than this (avoids reusing a stale/expired upload_id forever)
 
 function getExtension(name: string): string {
   return (name.split(".").pop() || "").toLowerCase();
@@ -40,6 +52,58 @@ async function withRetry<T>(fn: () => Promise<T>, label: string, retries = 3, ba
   throw lastErr instanceof Error ? lastErr : new Error(`${label} failed after ${retries} attempts`);
 }
 
+type UploadedPart = { PartNumber: number; ETag: string };
+type ResumeState = {
+  upload_id: string;
+  object_key: string;
+  chunk_size: number;
+  created_at: number;
+  parts: UploadedPart[];
+};
+
+// Identify a file well enough to match a resumable session across reloads.
+function resumeKey(file: File): string {
+  return `${RESUME_STORE_PREFIX}${file.name}:${file.size}:${file.lastModified}`;
+}
+
+function loadResume(file: File): ResumeState | null {
+  try {
+    const raw = localStorage.getItem(resumeKey(file));
+    if (!raw) return null;
+    const s = JSON.parse(raw) as ResumeState;
+    // Only resume if it's the same chunking scheme and not stale (a too-old upload_id
+    // may have been garbage-collected by the bucket, which would fail at complete).
+    if (
+      s?.upload_id &&
+      s.object_key &&
+      s.chunk_size === CHUNK_SIZE &&
+      Array.isArray(s.parts) &&
+      Date.now() - s.created_at < RESUME_MAX_AGE_MS
+    ) {
+      return s;
+    }
+  } catch {
+    // ignore malformed/unavailable storage
+  }
+  return null;
+}
+
+function saveResume(file: File, state: ResumeState): void {
+  try {
+    localStorage.setItem(resumeKey(file), JSON.stringify(state));
+  } catch {
+    // storage full / unavailable — resume is best-effort, upload still proceeds
+  }
+}
+
+function clearResume(file: File): void {
+  try {
+    localStorage.removeItem(resumeKey(file));
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * Upload a small binary file using a single presigned PUT.
  */
@@ -59,49 +123,109 @@ async function singlePresignedUpload(file: File, project: APIProject, onProgress
  * Upload a large binary file using S3 multipart upload with chunked presigned URLs.
  */
 async function multipartUpload(file: File, project: APIProject, onProgress?: ProgressCallback): Promise<string> {
-  const initRes = await withRetry(async () => {
-    const res = await API.invoke("multipartInit", { pk: project.id }, {
-      body: { filename: file.name, content_type: file.type || "application/octet-stream" },
-    });
-    if (!res || res.error) throw new Error(res?.error || "Failed to initiate multipart upload");
-    return res;
-  }, "multipart init");
-
-  const { upload_id, object_key } = initRes;
   const totalParts = Math.ceil(file.size / CHUNK_SIZE);
-  const parts: { PartNumber: number; ETag: string }[] = [];
 
-  for (let i = 0; i < totalParts; i++) {
-    const start = i * CHUNK_SIZE;
-    const end = Math.min(start + CHUNK_SIZE, file.size);
-    const chunk = file.slice(start, end);
-    const partNumber = i + 1;
+  // Resume a previous, compatible session for this exact file if one exists; otherwise init.
+  let upload_id: string;
+  let object_key: string;
+  const done = new Map<number, string>(); // PartNumber -> ETag (parts already uploaded)
 
-    // Re-presign + upload together so a stale URL or a stalled PUT both recover on retry.
-    const etag = await withRetry(async () => {
-      const partRes = await API.invoke("multipartPresignPart", { pk: project.id }, {
-        body: { object_key, upload_id, part_number: partNumber },
+  const resumed = loadResume(file);
+  if (resumed) {
+    upload_id = resumed.upload_id;
+    object_key = resumed.object_key;
+    for (const p of resumed.parts) done.set(p.PartNumber, p.ETag);
+  } else {
+    const initRes = await withRetry(async () => {
+      const res = await API.invoke("multipartInit", { pk: project.id }, {
+        body: { filename: file.name, content_type: file.type || "application/octet-stream" },
       });
-      if (!partRes || partRes.error) {
-        throw new Error(partRes?.error || `Failed to get presigned URL for part ${partNumber}`);
-      }
-      return await uploadWithXHR(partRes.presigned_url, chunk, "application/octet-stream", (chunkPct) => {
-        // Overall progress: completed parts + current chunk progress
-        const overallPct = Math.round(((i + chunkPct / 100) / totalParts) * 100);
-        onProgress?.(file.name, overallPct);
-      });
-    }, `part ${partNumber}`);
-    parts.push({ PartNumber: partNumber, ETag: etag });
+      if (!res || res.error) throw new Error(res?.error || "Failed to initiate multipart upload");
+      return res;
+    }, "multipart init");
+    upload_id = initRes.upload_id;
+    object_key = initRes.object_key;
+    saveResume(file, { upload_id, object_key, chunk_size: CHUNK_SIZE, created_at: Date.now(), parts: [] });
   }
 
-  await withRetry(async () => {
-    const res = await API.invoke("multipartComplete", { pk: project.id }, {
-      body: { object_key, upload_id, parts },
-    });
-    if (!res || res.error) throw new Error(res?.error || "Failed to complete multipart upload");
-    return res;
-  }, "multipart complete");
+  const sizeOfPart = (partNumber: number): number =>
+    Math.min(partNumber * CHUNK_SIZE, file.size) - (partNumber - 1) * CHUNK_SIZE;
 
+  // Aggregate progress across concurrent parts: bytes uploaded per part index.
+  const partBytes = new Array(totalParts).fill(0);
+  done.forEach((_etag, partNumber) => {
+    partBytes[partNumber - 1] = sizeOfPart(partNumber);
+  });
+  const reportProgress = () => {
+    const uploaded = partBytes.reduce((a, b) => a + b, 0);
+    onProgress?.(file.name, Math.min(100, Math.round((uploaded / file.size) * 100)));
+  };
+  reportProgress();
+
+  const persist = () => {
+    const parts: UploadedPart[] = [...done.entries()].map(([PartNumber, ETag]) => ({ PartNumber, ETag }));
+    saveResume(file, { upload_id, object_key, chunk_size: CHUNK_SIZE, created_at: Date.now(), parts });
+  };
+
+  // Work list: only the parts not already uploaded.
+  const pending: number[] = [];
+  for (let i = 0; i < totalParts; i++) {
+    if (!done.has(i + 1)) pending.push(i + 1);
+  }
+
+  // Concurrency pool: a fixed number of workers pull part numbers off a shared cursor.
+  // cursor++ is atomic in JS's single-threaded model, so no two workers grab the same part.
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    while (cursor < pending.length) {
+      const partNumber = pending[cursor++];
+      const start = (partNumber - 1) * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, file.size);
+      const chunk = file.slice(start, end);
+
+      // Re-presign + upload together so a stale URL or a stalled PUT both recover on retry.
+      const etag = await withRetry(async () => {
+        const partRes = await API.invoke("multipartPresignPart", { pk: project.id }, {
+          body: { object_key, upload_id, part_number: partNumber },
+        });
+        if (!partRes || partRes.error) {
+          throw new Error(partRes?.error || `Failed to get presigned URL for part ${partNumber}`);
+        }
+        return await uploadWithXHR(partRes.presigned_url, chunk, "application/octet-stream", (chunkPct) => {
+          partBytes[partNumber - 1] = (chunk.size * chunkPct) / 100;
+          reportProgress();
+        });
+      }, `part ${partNumber}`);
+
+      done.set(partNumber, etag);
+      partBytes[partNumber - 1] = chunk.size;
+      reportProgress();
+      persist(); // checkpoint after every part so an interruption resumes from here
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, pending.length) }, () => worker()));
+
+  const parts: UploadedPart[] = [...done.entries()]
+    .map(([PartNumber, ETag]) => ({ PartNumber, ETag }))
+    .sort((a, b) => a.PartNumber - b.PartNumber);
+
+  try {
+    await withRetry(async () => {
+      const res = await API.invoke("multipartComplete", { pk: project.id }, {
+        body: { object_key, upload_id, parts },
+      });
+      if (!res || res.error) throw new Error(res?.error || "Failed to complete multipart upload");
+      return res;
+    }, "multipart complete");
+  } catch (err) {
+    // Complete failing usually means the upload_id is gone/invalid — drop the saved
+    // session so the next attempt starts fresh rather than resuming a dead upload forever.
+    clearResume(file);
+    throw err;
+  }
+
+  clearResume(file);
   return object_key;
 }
 
