@@ -13,7 +13,7 @@ import "./Import.prefix.css";
 import { Button, CodeBlock, SimpleCard, Spinner, Tooltip, Typography, Badge } from "@humansignal/ui";
 import truncate from "truncate-middle";
 import samples from "./samples.json";
-import { importFiles } from "./utils";
+import { discardPendingUpload, importFiles, listPendingUploads } from "./utils";
 
 const importClass = cn("upload_page");
 const dropzoneClass = cn("dropzone");
@@ -155,6 +155,7 @@ export const ImportPage = ({
 }) => {
   const [error, setError] = useState();
   const [convertingNotice, setConvertingNotice] = useState(null);
+  const [pendingUploads, setPendingUploads] = useState([]);
   const [newlyUploadedFiles, setNewlyUploadedFiles] = useState(new Set());
   const prevUploadedRef = useRef(new Set());
   const api = useAPI();
@@ -211,6 +212,12 @@ export const ImportPage = ({
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
+  }, [isUploading]);
+
+  // Surface any interrupted large-file uploads from a previous session. Re-scan when
+  // upload activity settles so a session that just resumed-and-finished disappears.
+  useEffect(() => {
+    if (!isUploading) setPendingUploads(listPendingUploads());
   }, [isUploading]);
 
   const loadFilesList = useCallback(
@@ -448,6 +455,49 @@ export const ImportPage = ({
       </header>
 
       <ErrorMessage error={error} />
+
+      {!isUploading &&
+        pendingUploads.map((p) => (
+          <div
+            key={p.key}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "10px 16px",
+              background: "#eff6ff",
+              border: "1px solid #bfdbfe",
+              borderRadius: "8px",
+              marginBottom: "12px",
+              fontSize: "14px",
+              color: "#1e40af",
+            }}
+          >
+            <span style={{ fontSize: "16px" }}>&#8635;</span>
+            <span style={{ flex: 1 }}>
+              Unfinished upload: <strong>{p.name}</strong> stopped at {p.percent}%. Re-select the same file below to
+              resume — it will continue from where it left off.
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                discardPendingUpload(p.key);
+                setPendingUploads(listPendingUploads());
+              }}
+              style={{
+                background: "transparent",
+                border: "1px solid #bfdbfe",
+                borderRadius: "6px",
+                padding: "4px 10px",
+                color: "#1e40af",
+                cursor: "pointer",
+                fontSize: "13px",
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+        ))}
 
       {isUploading && (
         <div style={{
