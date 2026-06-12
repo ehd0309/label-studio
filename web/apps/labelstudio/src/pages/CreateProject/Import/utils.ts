@@ -59,7 +59,13 @@ type ResumeState = {
   chunk_size: number;
   created_at: number;
   parts: UploadedPart[];
+  // Stored so the import page can list interrupted uploads without re-reading the file.
+  name: string;
+  size: number;
 };
+
+// A resumable session surfaced to the UI ("you have an unfinished upload of X at N%").
+export type PendingUpload = { key: string; name: string; size: number; percent: number; updatedAt: number };
 
 // Identify a file well enough to match a resumable session across reloads.
 function resumeKey(file: File): string {
@@ -88,9 +94,9 @@ function loadResume(file: File): ResumeState | null {
   return null;
 }
 
-function saveResume(file: File, state: ResumeState): void {
+function saveResume(file: File, state: Omit<ResumeState, "name" | "size">): void {
   try {
-    localStorage.setItem(resumeKey(file), JSON.stringify(state));
+    localStorage.setItem(resumeKey(file), JSON.stringify({ ...state, name: file.name, size: file.size }));
   } catch {
     // storage full / unavailable — resume is best-effort, upload still proceeds
   }
@@ -99,6 +105,48 @@ function saveResume(file: File, state: ResumeState): void {
 function clearResume(file: File): void {
   try {
     localStorage.removeItem(resumeKey(file));
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * List interrupted multipart uploads saved in this browser (most recent first),
+ * so the import page can prompt the user to re-select the file and resume.
+ * Stale sessions (older than RESUME_MAX_AGE_MS) are skipped.
+ */
+export function listPendingUploads(): PendingUpload[] {
+  const out: PendingUpload[] = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith(RESUME_STORE_PREFIX)) continue;
+      try {
+        const s = JSON.parse(localStorage.getItem(key) || "") as ResumeState;
+        if (!s?.upload_id || !Array.isArray(s.parts) || !s.size) continue;
+        if (Date.now() - s.created_at >= RESUME_MAX_AGE_MS) continue;
+        const uploaded = Math.min(s.parts.length * s.chunk_size, s.size);
+        out.push({
+          key,
+          name: s.name || key.slice(RESUME_STORE_PREFIX.length),
+          size: s.size,
+          percent: Math.min(99, Math.round((uploaded / s.size) * 100)),
+          updatedAt: s.created_at,
+        });
+      } catch {
+        // skip malformed entry
+      }
+    }
+  } catch {
+    // localStorage unavailable
+  }
+  return out.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/** Forget an interrupted upload (user dismissed it). */
+export function discardPendingUpload(key: string): void {
+  try {
+    localStorage.removeItem(key);
   } catch {
     // ignore
   }
