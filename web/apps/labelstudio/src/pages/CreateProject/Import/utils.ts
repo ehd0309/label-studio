@@ -47,6 +47,7 @@ async function withRetry<T>(
   retries = 4,
   baseDelayMs = 1000,
   maxDelayMs = 30000,
+  onError?: (attempt: number, err: unknown) => void,
 ): Promise<T> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= retries; attempt++) {
@@ -54,6 +55,7 @@ async function withRetry<T>(
       return await fn();
     } catch (err) {
       lastErr = err;
+      onError?.(attempt, err);
       if (attempt < retries) {
         const expo = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
         const jittered = expo * (0.5 + Math.random() * 0.5);
@@ -62,6 +64,33 @@ async function withRetry<T>(
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(`${label} failed after ${retries} attempts`);
+}
+
+function errText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/**
+ * Best-effort telemetry beacon for upload failures. Many failures (especially on
+ * flaky/filtered networks) never complete a normal request, so we log them here:
+ * lands in the backend container log -> Cloud Logging (query: jsonPayload.log=~"UPLOAD_TELEMETRY").
+ * Never throws and never blocks the upload.
+ */
+function reportUploadEvent(project: APIProject, event: Record<string, unknown>): void {
+  try {
+    const conn = (navigator as any)?.connection || {};
+    const result = API.invoke("uploadTelemetry", { pk: project.id }, {
+      body: {
+        ...event,
+        online: typeof navigator !== "undefined" ? navigator.onLine : undefined,
+        ua: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+        conn: { effectiveType: conn.effectiveType, downlink: conn.downlink, rtt: conn.rtt },
+      },
+    });
+    if (result && typeof (result as any).catch === "function") (result as any).catch(() => {});
+  } catch {
+    // best-effort, ignore
+  }
 }
 
 type UploadedPart = { PartNumber: number; ETag: string };
@@ -202,7 +231,15 @@ async function multipartUpload(file: File, project: APIProject, onProgress?: Pro
       });
       if (!res || res.error) throw new Error(res?.error || "Failed to initiate multipart upload");
       return res;
-    }, "multipart init");
+    }, "multipart init", 4, 1000, 30000, (attempt, err) =>
+      reportUploadEvent(project, {
+        phase: "init",
+        attempt,
+        fileName: file.name,
+        fileSize: file.size,
+        error: errText(err),
+      }),
+    );
     upload_id = initRes.upload_id;
     object_key = initRes.object_key;
     saveResume(file, { upload_id, object_key, chunk_size: CHUNK_SIZE, created_at: Date.now(), parts: [] });
@@ -261,6 +298,18 @@ async function multipartUpload(file: File, project: APIProject, onProgress?: Pro
         },
         `part ${partNumber}`,
         6,
+        1000,
+        30000,
+        (attempt, err) =>
+          reportUploadEvent(project, {
+            phase: "part",
+            part: partNumber,
+            attempt,
+            fileName: file.name,
+            fileSize: file.size,
+            uploadId: upload_id,
+            error: errText(err),
+          }),
       );
 
       done.set(partNumber, etag);
@@ -283,7 +332,16 @@ async function multipartUpload(file: File, project: APIProject, onProgress?: Pro
       });
       if (!res || res.error) throw new Error(res?.error || "Failed to complete multipart upload");
       return res;
-    }, "multipart complete");
+    }, "multipart complete", 4, 1000, 30000, (attempt, err) =>
+      reportUploadEvent(project, {
+        phase: "complete",
+        attempt,
+        fileName: file.name,
+        fileSize: file.size,
+        uploadId: upload_id,
+        error: errText(err),
+      }),
+    );
   } catch (err) {
     // Complete failing usually means the upload_id is gone/invalid — drop the saved
     // session so the next attempt starts fresh rather than resuming a dead upload forever.

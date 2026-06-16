@@ -1187,6 +1187,24 @@ class MultipartCompleteAPI(APIView):
         return Response({'status': 'completed'})
 
 
+class UploadTelemetryAPI(APIView):
+    """Receive client-side upload telemetry (failed/retried parts, init/complete
+    errors) and log it. Many upload failures never complete a normal server
+    request — they're dropped on the network path between the browser and us —
+    so this best-effort beacon is how we see them. Logged to the container log,
+    which ships to Cloud Logging; query with: jsonPayload.log=~"UPLOAD_TELEMETRY"."""
+
+    permission_required = all_permissions.projects_change
+
+    def post(self, request, pk):
+        generics.get_object_or_404(Project.objects.for_user(request.user), pk=pk)
+        event = request.data if isinstance(request.data, dict) else {}
+        # Bound what we log: at most 30 keys, each value stringified and truncated.
+        safe = {str(k)[:60]: str(v)[:500] for k, v in list(event.items())[:30]}
+        logger.warning('[UPLOAD_TELEMETRY] project=%s %s', pk, json.dumps(safe, ensure_ascii=False))
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class RegisterUploadAPI(APIView):
     """Register a file that was directly uploaded to MinIO, creating FileUpload + Task.
     For WMV files, Task is NOT created until conversion to MP4 completes."""
