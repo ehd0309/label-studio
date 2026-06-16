@@ -12,9 +12,11 @@ const BINARY_EXTENSIONS = new Set([
 // Cloudflare Tunnel, so the old 5MB constraint no longer applies.)
 const CHUNK_SIZE = 32 * 1024 * 1024;
 
-// How many parts to upload concurrently. Keeps wall-clock down while bounding peak
-// memory/connections (UPLOAD_CONCURRENCY * CHUNK_SIZE of in-flight buffers).
-const UPLOAD_CONCURRENCY = 4;
+// How many parts to upload concurrently. Parallelism keeps wall-clock down, but each
+// extra simultaneous connection is more load for a flaky/filtered network to drop, so
+// this is kept modest (lowered 4 -> 3) to reduce burst pressure on constrained networks
+// while still overlapping transfers. Peak in-flight memory is UPLOAD_CONCURRENCY * CHUNK_SIZE.
+const UPLOAD_CONCURRENCY = 3;
 
 // Multipart sessions are persisted here so an interrupted upload of the same file can
 // resume (reuse upload_id + already-uploaded parts) instead of restarting from part 1.
@@ -32,12 +34,20 @@ function isBinaryFile(name: string): boolean {
 type ProgressCallback = (fileName: string, percent: number) => void;
 
 /**
- * Retry an async operation with exponential backoff. Retries on any thrown error.
- * Large multipart uploads (10GB+ / 2000+ parts) used to abort entirely on a single
- * transient network blip (a stalled part, or a failed init) — this makes each step
- * resilient so one hiccup no longer discards the whole upload.
+ * Retry an async operation with exponential backoff + jitter. Retries on any thrown error.
+ * Large multipart uploads used to abort entirely on a single transient network blip.
+ * On flaky/filtered networks (e.g. a hospital proxy that intermittently drops requests
+ * under the parallel-upload burst), short retry windows weren't enough, so backoff now
+ * spans tens of seconds. Jitter (50–100% of the delay) de-synchronizes the concurrent
+ * workers so their retries don't pile into a new burst.
  */
-async function withRetry<T>(fn: () => Promise<T>, label: string, retries = 3, baseDelayMs = 1000): Promise<T> {
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+  retries = 4,
+  baseDelayMs = 1000,
+  maxDelayMs = 30000,
+): Promise<T> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
@@ -45,7 +55,9 @@ async function withRetry<T>(fn: () => Promise<T>, label: string, retries = 3, ba
     } catch (err) {
       lastErr = err;
       if (attempt < retries) {
-        await new Promise((resolve) => setTimeout(resolve, baseDelayMs * 2 ** (attempt - 1)));
+        const expo = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
+        const jittered = expo * (0.5 + Math.random() * 0.5);
+        await new Promise((resolve) => setTimeout(resolve, jittered));
       }
     }
   }
@@ -232,18 +244,24 @@ async function multipartUpload(file: File, project: APIProject, onProgress?: Pro
       const chunk = file.slice(start, end);
 
       // Re-presign + upload together so a stale URL or a stalled PUT both recover on retry.
-      const etag = await withRetry(async () => {
-        const partRes = await API.invoke("multipartPresignPart", { pk: project.id }, {
-          body: { object_key, upload_id, part_number: partNumber },
-        });
-        if (!partRes || partRes.error) {
-          throw new Error(partRes?.error || `Failed to get presigned URL for part ${partNumber}`);
-        }
-        return await uploadWithXHR(partRes.presigned_url, chunk, "application/octet-stream", (chunkPct) => {
-          partBytes[partNumber - 1] = (chunk.size * chunkPct) / 100;
-          reportProgress();
-        });
-      }, `part ${partNumber}`);
+      // 6 attempts (~1+2+4+8+16s of jittered backoff) so a part survives a network outage
+      // of up to ~30s before the whole upload aborts — the common failure on flaky networks.
+      const etag = await withRetry(
+        async () => {
+          const partRes = await API.invoke("multipartPresignPart", { pk: project.id }, {
+            body: { object_key, upload_id, part_number: partNumber },
+          });
+          if (!partRes || partRes.error) {
+            throw new Error(partRes?.error || `Failed to get presigned URL for part ${partNumber}`);
+          }
+          return await uploadWithXHR(partRes.presigned_url, chunk, "application/octet-stream", (chunkPct) => {
+            partBytes[partNumber - 1] = (chunk.size * chunkPct) / 100;
+            reportProgress();
+          });
+        },
+        `part ${partNumber}`,
+        6,
+      );
 
       done.set(partNumber, etag);
       partBytes[partNumber - 1] = chunk.size;
