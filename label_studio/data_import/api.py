@@ -1068,13 +1068,20 @@ def _proxy_url(url):
 
 
 def _validate_binary_upload(filename):
-    """Validate filename and return object_key prefix components."""
+    """Validate filename and return it with a lowercased extension.
+
+    The editor (LSF) detects media type by matching the file extension against a
+    lowercase list, case-sensitively — so an uppercase extension like '.MP4' is not
+    recognized as video and the task can't be annotated. Normalize the extension to
+    lowercase here so every stored object_key ends in a lowercase extension.
+    """
     if not filename:
         raise ValidationError('"filename" is required')
-    ext = os.path.splitext(filename)[1].lower()
+    root, ext = os.path.splitext(filename)
+    ext = ext.lower()
     if ext not in BINARY_EXTENSIONS:
         raise ValidationError(f'Extension {ext} is not supported for direct upload. Use standard import.')
-    return ext
+    return root + ext
 
 
 class PresignedUploadAPI(APIView):
@@ -1084,8 +1091,7 @@ class PresignedUploadAPI(APIView):
 
     def post(self, request, pk):
         project = generics.get_object_or_404(Project.objects.for_user(request.user), pk=pk)
-        filename = request.data.get('filename')
-        _validate_binary_upload(filename)
+        filename = _validate_binary_upload(request.data.get('filename'))
 
         object_key = f"{settings.UPLOAD_DIR}/{project.id}/{uuid.uuid4().hex[:8]}-{filename}"
         s3 = _get_s3_presign_client()
@@ -1112,8 +1118,7 @@ class MultipartInitAPI(APIView):
 
     def post(self, request, pk):
         project = generics.get_object_or_404(Project.objects.for_user(request.user), pk=pk)
-        filename = request.data.get('filename')
-        _validate_binary_upload(filename)
+        filename = _validate_binary_upload(request.data.get('filename'))
 
         object_key = f"{settings.UPLOAD_DIR}/{project.id}/{uuid.uuid4().hex[:8]}-{filename}"
         content_type = request.data.get('content_type', 'application/octet-stream')
