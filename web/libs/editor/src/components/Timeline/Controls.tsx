@@ -19,7 +19,7 @@ import {
 import { Button, type ButtonProps, Space } from "@humansignal/ui";
 import { type FC, memo, type MouseEvent, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { WithHotkey } from "../../common/Hotkey/WithHotkey";
-import { Hotkey, type HotkeyList } from "../../core/Hotkey";
+import { type HotkeyList } from "../../core/Hotkey";
 import { cn } from "../../utils/bem";
 import { isDefined } from "../../utils/utilities";
 import { TimelineContext } from "./Context";
@@ -270,7 +270,6 @@ export const Controls: FC<TimelineControlsProps> = memo(
               data-testid={`playback-button:${playing ? "pause" : "play"}`}
               onClick={handlePlay}
               hotkey={settings?.playpauseHotkey}
-              hotkeyScope={Hotkey.ALL_SCOPES}
               aria-label="Play"
             >
               {playing ? <IconTimelinePause /> : <IconTimelinePlay />}
