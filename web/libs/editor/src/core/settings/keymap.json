@@ -148,8 +148,8 @@
     "description": "Delete selected region"
   },
   "media:playpause": {
-    "key": "ctrl+alt+space",
-    "mac": "command+alt+space",
+    "key": "space",
+    "mac": "space",
     "description": "Play/pause"
   },
   "media:step-backward": {
