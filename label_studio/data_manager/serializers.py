@@ -1,7 +1,6 @@
 """This file and its contents are licensed under the Apache License 2.0. Please see the included NOTICE for copyright information and LICENSE for a copy of the license."""
 
 import os
-import re
 
 import ujson as json
 from core.current_request import CurrentContext
@@ -549,14 +548,14 @@ class DataManagerTaskSerializer(TaskSerializer):
 
     @staticmethod
     def get_file_upload(task):
-        # Prefer the user-set display name (rename only changes this label).
+        # Prefer the user-set display name (only set when a file was renamed);
+        # otherwise the original stored basename, unchanged.
         display = getattr(task, 'file_upload_display_name', None)
         if display:
             return display
         file_upload = getattr(task, 'file_upload_field', None)
         if file_upload:
-            # strip the internal 8-char uuid prefix for readability
-            return re.sub(r'^[0-9a-f]{8}-', '', os.path.basename(file_upload))
+            return os.path.basename(file_upload)
         return None
 
     @staticmethod
