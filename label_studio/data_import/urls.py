@@ -23,6 +23,7 @@ _api_projects_urlpatterns = [
     path('<int:pk>/multipart/complete', api.MultipartCompleteAPI.as_view(), name='project-multipart-complete'),
     path('<int:pk>/upload-telemetry', api.UploadTelemetryAPI.as_view(), name='project-upload-telemetry'),
     path('<int:pk>/duplicate-file', api.DuplicateFileAPI.as_view(), name='project-duplicate-file'),
+    path('<int:pk>/rename-file', api.RenameFileAPI.as_view(), name='project-rename-file'),
     path('<int:pk>/convert-wmv', api.ConvertWmvAPI.as_view(), name='project-convert-wmv'),
     path('<int:pk>/convert-wmv-status', api.ConvertWmvStatusAPI.as_view(), name='project-convert-wmv-status'),
 ]

@@ -1,6 +1,7 @@
 """This file and its contents are licensed under the Apache License 2.0. Please see the included NOTICE for copyright information and LICENSE for a copy of the license."""
 
 import os
+import re
 
 import ujson as json
 from core.current_request import CurrentContext
@@ -454,6 +455,7 @@ class DataManagerTaskSerializer(TaskSerializer):
     predictions_score = serializers.FloatField(required=False)
     file_upload = serializers.SerializerMethodField(required=False)
     storage_filename = serializers.SerializerMethodField(required=False)
+    file_size = serializers.SerializerMethodField(required=False)
     annotations_ids = serializers.SerializerMethodField(required=False)
     predictions_model_versions = serializers.SerializerMethodField(required=False)
     avg_lead_time = serializers.FloatField(required=False)
@@ -547,14 +549,31 @@ class DataManagerTaskSerializer(TaskSerializer):
 
     @staticmethod
     def get_file_upload(task):
-        if hasattr(task, 'file_upload_field'):
-            file_upload = task.file_upload_field
-            return os.path.basename(task.file_upload_field) if file_upload else None
+        # Prefer the user-set display name (rename only changes this label).
+        display = getattr(task, 'file_upload_display_name', None)
+        if display:
+            return display
+        file_upload = getattr(task, 'file_upload_field', None)
+        if file_upload:
+            # strip the internal 8-char uuid prefix for readability
+            return re.sub(r'^[0-9a-f]{8}-', '', os.path.basename(file_upload))
         return None
 
     @staticmethod
     def get_storage_filename(task):
         return task.get_storage_filename()
+
+    @staticmethod
+    def get_file_size(task):
+        size = getattr(task, 'file_upload_size', None)
+        if size is None:
+            return None
+        value = float(size)
+        for unit in ('B', 'KB', 'MB', 'GB', 'TB'):
+            if value < 1024 or unit == 'TB':
+                return f'{value:.0f} {unit}' if unit == 'B' else f'{value:.1f} {unit}'
+            value /= 1024
+        return None
 
     @staticmethod
     def get_updated_by(obj):

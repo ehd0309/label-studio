@@ -715,7 +715,14 @@ def annotate_draft_exists(queryset):
 
 
 def file_upload(queryset):
-    return queryset.annotate(file_upload_field=F('file_upload__file'))
+    return queryset.annotate(
+        file_upload_field=F('file_upload__file'),
+        file_upload_display_name=F('file_upload__display_name'),
+    )
+
+
+def file_size(queryset):
+    return queryset.annotate(file_upload_size=F('file_upload__size'))
 
 
 def dummy(queryset):
@@ -755,6 +762,7 @@ settings.DATA_MANAGER_ANNOTATIONS_MAP = {
     'annotators': annotate_annotators,
     'annotations_ids': annotate_annotations_ids,
     'file_upload': file_upload,
+    'file_size': file_size,
     'draft_exists': annotate_draft_exists,
     'storage_filename': annotate_storage_filename,
     'state': annotate_state,

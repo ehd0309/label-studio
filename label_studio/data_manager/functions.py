@@ -224,6 +224,15 @@ def get_all_columns(project, *_):
             'project_defined': False,
         },
         {
+            'id': 'file_size',
+            'title': 'File size',
+            'type': 'String',
+            'target': 'tasks',
+            'help': 'Size of the uploaded file',
+            'visibility_defaults': {'explore': False, 'labeling': False},
+            'project_defined': False,
+        },
+        {
             'id': 'created_at',
             'title': 'Created at',
             'type': 'Datetime',
