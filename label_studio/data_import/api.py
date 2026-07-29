@@ -976,6 +976,37 @@ class DuplicateFileAPI(APIView):
         }, status=status.HTTP_201_CREATED)
 
 
+class RenameFileAPI(APIView):
+    """Rename an uploaded file's display name only.
+
+    This changes the label shown in the UI (Data Manager / Storage Browser); the stored
+    object key and the task data are intentionally left untouched, so media URLs and
+    existing annotations are unaffected. Users just want a clearer name.
+    """
+
+    permission_required = all_permissions.projects_change
+
+    def post(self, request, pk):
+        project = generics.get_object_or_404(Project.objects.for_user(request.user), pk=pk)
+        file_upload_id = request.data.get('file_upload_id')
+        task_id = request.data.get('task_id')
+        new_name = (request.data.get('new_name') or '').strip()
+        if not new_name or not (file_upload_id or task_id):
+            raise ValidationError('"new_name" and one of "file_upload_id"/"task_id" are required')
+
+        if file_upload_id:
+            fu = FileUpload.objects.filter(id=file_upload_id, project=project).first()
+        else:
+            task = Task.objects.filter(id=task_id, project=project).first()
+            fu = task.file_upload if task else None
+        if not fu:
+            return Response({'detail': 'File not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        fu.display_name = new_name[:1024]
+        fu.save(update_fields=['display_name'])
+        return Response({'file_upload_id': fu.id, 'display_name': fu.display_name})
+
+
 from data_import.conversion import start_conversion, get_job_status, is_converting
 
 
@@ -1256,6 +1287,15 @@ class RegisterUploadAPI(APIView):
             data={settings.DATA_UNDEFINED_NAME: data_value},
             file_upload=file_upload,
         )
+
+        # Record the stored object size (one HEAD at upload time) so the grid can show it
+        # without a per-row storage stat. Best-effort — never fail the upload over this.
+        try:
+            head = _get_s3_client().head_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=object_key)
+            file_upload.size = head.get('ContentLength')
+            file_upload.save(update_fields=['size'])
+        except Exception as e:
+            logger.warning(f'Could not record upload size for {object_key}: {e}')
 
         project.update_tasks_counters_and_task_states(
             tasks_queryset=Task.objects.filter(id=task.id),

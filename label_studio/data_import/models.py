@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 import uuid
 from collections import Counter
 
@@ -34,6 +35,12 @@ class FileUpload(models.Model):
     user = models.ForeignKey('users.User', related_name='file_uploads', on_delete=models.CASCADE)
     project = models.ForeignKey('projects.Project', related_name='file_uploads', on_delete=models.CASCADE)
     file = models.FileField(upload_to=upload_name_generator)
+    # Human-facing name shown in the UI (Data Manager / Storage Browser). Renaming a file
+    # only changes this label — the stored object key and task data are untouched.
+    display_name = models.CharField(max_length=1024, null=True, blank=True)
+    # Size of the stored object in bytes, recorded at upload/conversion time so the grid
+    # can show it without a per-row storage stat.
+    size = models.BigIntegerField(null=True, blank=True)
 
     def has_permission(self, user):
         user.project = self.project  # link for activity log
@@ -46,6 +53,15 @@ class FileUpload(models.Model):
     @cached_property
     def file_name(self):
         return os.path.basename(self.file.name)
+
+    @property
+    def display_filename(self):
+        """Name to show in the UI: the user-set display_name, else the object basename
+        (with the internal 8-char uuid prefix stripped for readability)."""
+        if self.display_name:
+            return self.display_name
+        base = os.path.basename(self.file.name or '')
+        return re.sub(r'^[0-9a-f]{8}-', '', base)
 
     @property
     def url(self):

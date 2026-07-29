@@ -43,9 +43,12 @@ class FileUploadBrowserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = FileUpload
-        fields = ['id', 'file', 'name', 'size', 'url', 'created_at']
+        fields = ['id', 'file', 'name', 'display_name', 'size', 'url', 'created_at']
 
     def get_size(self, obj) -> int | None:
+        # Prefer the size recorded at upload time; fall back to a storage stat.
+        if obj.size is not None:
+            return obj.size
         try:
             return obj.file.size
         except (ValueError, OSError):
@@ -55,7 +58,8 @@ class FileUploadBrowserSerializer(serializers.ModelSerializer):
         return obj.url
 
     def get_name(self, obj) -> str:
-        return obj.file_name
+        # Show the user-facing name (renamed display_name, else cleaned basename).
+        return obj.display_filename
 
     def get_created_at(self, obj) -> str | None:
         from tasks.models import Task

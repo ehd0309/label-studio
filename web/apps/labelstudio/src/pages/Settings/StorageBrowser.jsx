@@ -146,6 +146,27 @@ export const StorageBrowser = () => {
     }
   }, [api, project?.id, fetchFiles]);
 
+  const renameFile = useCallback(async (fileId, currentName) => {
+    if (!project?.id) return;
+    const newName = window.prompt("Enter a new display name for this file:", currentName || "");
+    if (!newName || newName === currentName) return;
+
+    try {
+      const res = await api.callApi("renameFile", {
+        params: { pk: project.id },
+        body: { file_upload_id: fileId, new_name: newName },
+      });
+      if (res && !res.error) {
+        await fetchFiles();
+      } else {
+        window.alert("Rename failed: " + (res?.detail || "Unknown error"));
+      }
+    } catch (e) {
+      console.error("Failed to rename file", e);
+      window.alert("Rename failed");
+    }
+  }, [api, project?.id, fetchFiles]);
+
   const convertToMp4 = useCallback(async (fileId) => {
     if (!project?.id) return;
     setManualConverting((prev) => ({ ...prev, [fileId]: true }));
@@ -402,6 +423,20 @@ export const StorageBrowser = () => {
                               Convert to MP4
                             </button>
                           )}
+                          <button
+                            onClick={() => renameFile(file.id, file.name)}
+                            title="Rename (display name only)"
+                            style={{
+                              color: "#0891b2",
+                              background: "none",
+                              border: "none",
+                              fontSize: "13px",
+                              cursor: "pointer",
+                              marginRight: "12px",
+                            }}
+                          >
+                            ✎ Rename
+                          </button>
                           <button
                             onClick={() => duplicateFile(file.id, file.name)}
                             style={{
