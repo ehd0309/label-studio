@@ -32,6 +32,7 @@ export const API_CONFIG = {
     multipartComplete: "POST:/projects/:pk/multipart/complete",
     uploadTelemetry: "POST:/projects/:pk/upload-telemetry",
     duplicateFile: "POST:/projects/:pk/duplicate-file",
+    renameFile: "POST:/projects/:pk/rename-file",
     convertWmv: "POST:/projects/:pk/convert-wmv",
     convertWmvStatus: "/projects/:pk/convert-wmv-status",
 
