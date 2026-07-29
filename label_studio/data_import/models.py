@@ -2,7 +2,6 @@
 
 import logging
 import os
-import re
 import uuid
 from collections import Counter
 
@@ -56,12 +55,11 @@ class FileUpload(models.Model):
 
     @property
     def display_filename(self):
-        """Name to show in the UI: the user-set display_name, else the object basename
-        (with the internal 8-char uuid prefix stripped for readability)."""
+        """Name to show in the UI: the user-set display_name if the file was renamed,
+        otherwise the original stored basename (unchanged)."""
         if self.display_name:
             return self.display_name
-        base = os.path.basename(self.file.name or '')
-        return re.sub(r'^[0-9a-f]{8}-', '', base)
+        return os.path.basename(self.file.name or '')
 
     @property
     def url(self):
